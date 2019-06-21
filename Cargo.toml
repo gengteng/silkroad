@@ -1,0 +1,9 @@
+[package]
+name = "silkroad"
+version = "0.0.0"
+authors = ["GengTeng <me@gteng.org>"]
+edition = "2018"
+description = ""
+license = "MIT"
+
+[dependencies]

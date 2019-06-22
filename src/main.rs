@@ -1,16 +1,11 @@
-#[macro_use]
-extern crate serde_derive;
-
 use actix_web::{
     HttpServer,
     App,
     web,
     HttpResponse,
-    Error
-};
-use futures::{
-    Future,
-    future
+    http:: {
+        header
+    }
 };
 use rustls::{
     internal::pemfile::{
@@ -23,17 +18,29 @@ use rustls::{
 use std::io::BufReader;
 use std::fs::File;
 
-#[derive(Serialize, Debug)]
-struct Data {
-    value: i32
-}
-// TODO: fix me
-fn create_something() -> impl Future<Item = HttpResponse, Error = Error> {
-    let d = Data { value: 12 };
+// /api/v1/crates/tokio/0.1.21/download
+fn redirect_download(path: web::Path<(String, String)>) -> HttpResponse {
+    let name = &path.0;
+    let version = &path.1;
 
-    future::ok(HttpResponse::Ok()
-        .content_type("application/json")
-        .body(serde_json::to_string(&d).unwrap()))
+    let location = match name.len() {
+        1 => {
+            format!("/crates/{}/{}/{}-{}.crate", 1, name, name, version)
+        }
+        2 => {
+            format!("/crates/{}/{}/{}-{}.crate", 2, name, name, version)
+        }
+        3 => {
+            format!("/crates/{}/{}/{}/{}-{}.crate", 3, &name[..1], name, name, version)
+        }
+        _ => {
+            format!("/crates/{}/{}/{}/{}-{}.crate", &name[..2], &name[2..4], name, name, version)
+        }
+    };
+
+    HttpResponse::Found()
+        .header(header::LOCATION, location)
+        .finish()
 }
 
 fn main() {
@@ -50,7 +57,8 @@ fn main() {
 
     HttpServer::new(|| {
         App::new()
-            .service(web::resource("/api/v1/crates").route(web::get().to_async(create_something)))
+            .service(web::resource("/api/v1/crates/{name}/{version}/download").route(web::get().to(redirect_download)))
+            .service(actix_files::Files::new("/crates", r#"E:\crates-mirror\crates"#).show_files_listing())
             .service(actix_files::Files::new("/crates.io-index", r#"E:\crates-mirror\crates.io-index"#).show_files_listing())
     })
     .bind_rustls("0.0.0.0:443", config).expect("bind error")

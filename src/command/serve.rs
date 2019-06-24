@@ -5,12 +5,11 @@ use rustls::{
 };
 use std::{fs::File, io::BufReader, process::Command as PsCommand};
 
-use crate::error::SkrdResult;
-use std::net::SocketAddr;
+use crate::error::{SkrdResult, SkrdError};
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use structopt::StructOpt;
-
-const DEFAULT_LISTENING_ADDRESS: &str = "127.0.0.1:4000";
+use std::fmt::Debug;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -20,10 +19,9 @@ pub struct Serve {
         short = "a",
         help = "Set the listening address",
         value_name = "IP:PORT",
-        raw(default_value = "DEFAULT_LISTENING_ADDRESS"),
         parse(try_from_str)
     )]
-    addr: SocketAddr,
+    addr: Option<SocketAddr>,
 
     #[structopt(
         long = "index-path",
@@ -42,26 +40,63 @@ pub struct Serve {
         parse(try_from_str)
     )]
     crates_path: PathBuf,
+
+    #[structopt(
+        long = "ssl-files",
+        short = "s",
+        help = "Set the certificate path and the RSA private key path",
+        value_name = "CERTPATH,KEYPATH",
+        parse(try_from_str)
+    )]
+    keys: Option<CertAndKey>,
+}
+
+struct CertAndKey {
+    raw: String,
+    config: ServerConfig
+}
+
+impl Debug for CertAndKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "CertAndKey {{ {:?} }}", self.raw)
+    }
+}
+
+impl std::str::FromStr for CertAndKey {
+    type Err = SkrdError;
+
+    fn from_str(s: &str) -> SkrdResult<Self> {
+        let raw = s.to_owned();
+        match s.find(',') {
+            Some(n) => {
+                let mut config = ServerConfig::new(NoClientAuth::new());
+
+                let cert_file = &mut BufReader::new(File::open(&s[..n])?);
+                let key_file = &mut BufReader::new(File::open(&s[n+1..])?);
+                let cert_chain = certs(cert_file)
+                    .map_err(|_| rustls::TLSError::General("Extract certificates error".to_owned()))?;
+                let mut keys = rsa_private_keys(key_file)
+                    .map_err(|_| rustls::TLSError::General("Extract RSA private keys error".to_owned()))?;
+                config.set_single_cert(cert_chain, keys.remove(0))?;
+
+                Ok(CertAndKey {
+                    raw,
+                    config
+                })
+            }
+            None => Err(SkrdError::Custom("Ssl-files format error".to_owned()))
+        }
+    }
 }
 
 impl Serve {
     pub fn serve(&self) -> SkrdResult<()> {
         let sys = actix_rt::System::new("silk_road");
 
-        // ssl initialize
-        let mut config = ServerConfig::new(NoClientAuth::new());
-        let cert_file = &mut BufReader::new(File::open("cert.pem")?);
-        let key_file = &mut BufReader::new(File::open("key.pem")?);
-        let cert_chain = certs(cert_file)
-            .map_err(|_| rustls::TLSError::General("Extract certificates error".to_owned()))?;
-        let mut keys = rsa_private_keys(key_file)
-            .map_err(|_| rustls::TLSError::General("Extract RSA private keys error".to_owned()))?;
-        config.set_single_cert(cert_chain, keys.remove(0))?;
-
         let index_path = self.index_path.clone();
         let crates_path = self.crates_path.clone();
 
-        HttpServer::new(move || {
+        let server = HttpServer::new(move || {
             App::new()
                 .data(index_path.clone())
                 .service(
@@ -73,7 +108,7 @@ impl Serve {
                 )
                 .service(web::resource("/crates.io-index/info/refs").to(git_info_refs))
                 .service(
-                    actix_files::Files::new("/crates.io-index", index_path.clone())
+                    actix_files::Files::new("/crates.io-index", index_path.clone()) // http://localhost/crates.io-index/to/ki/tokio
                         .show_files_listing(),
                 )
                 .default_service(
@@ -86,14 +121,27 @@ impl Serve {
                                 .to(HttpResponse::MethodNotAllowed),
                         ),
                 )
-        })
-        .bind_rustls(self.addr, config)?
-        .start();
+        });
 
-        // log
+        match &self.keys {
+            Some(cert_key) => {
+                let addr = self.addr.unwrap_or(sock_addr_v4(127, 0, 0, 1, 443));
+                server.bind_rustls(addr, cert_key.config.clone())?.start();
+                info!("Registry started at https://{}:{}.", addr.ip(), addr.port());
+            }
+            None => {
+                let addr = self.addr.unwrap_or(sock_addr_v4(127, 0, 0, 1, 80));
+                server.bind(addr)?.start();
+                info!("Registry started at http://{}:{}.", addr.ip(), addr.port());
+            }
+        }
         sys.run()?;
         Ok(())
     }
+}
+
+fn sock_addr_v4(a: u8, b: u8, c: u8, d: u8, port: u16) -> SocketAddr {
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(a, b, c, d)), port)
 }
 
 // /api/v1/crates/tokio/0.1.21/download
@@ -129,7 +177,11 @@ fn redirect_download(path: web::Path<(String, String)>) -> HttpResponse {
 
 /// 404 handler
 fn p404(request: HttpRequest) -> HttpResponse {
-    println!("{:?}", request);
+    info!("REQ: {:?} {}:{} <= RESP: 404 Not Found",
+          request.version(),
+          request.method(),
+          request.path());
+    debug!("request:{:?}", request);
     HttpResponse::NotFound().finish()
 }
 
@@ -163,7 +215,7 @@ fn git_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpRe
                 .body(body)
         }
         _ => {
-            eprintln!("get service error: {:?}", request);
+            error!("get service error: {:?}", request);
             HttpResponse::NotFound().finish()
         }
     }

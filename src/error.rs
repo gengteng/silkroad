@@ -12,9 +12,9 @@ pub enum SkrdError {
     #[fail(display = "TLS error: {}", _0)]
     Tls(#[cause] rustls::TLSError),
 
-    /// General error
-    #[fail(display = "General error: {}", _0)]
-    General(String),
+    /// Custom error
+    #[fail(display = "Custom error: {}", _0)]
+    Custom(String),
 }
 
 impl From<std::io::Error> for SkrdError {

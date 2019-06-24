@@ -19,6 +19,15 @@ rustls = "0.15"
 git2 = "0.9.1"
 failure = "0.1.5"
 
+log = { version = "0.4.6", features = ["max_level_trace", "release_max_level_debug"] }
+slog = { version = "2.4.1", features = ["max_level_trace", "release_max_level_debug"] }
+slog-async = { version = "2.3.0", default-features = false }
+slog-global = { version = "0.1", git = "https://github.com/breeswish/slog-global.git", rev = "91904ade" }
+slog-term = "2.4.0"
+slog_derive = "0.1"
+
+chrono = "0.4.6"
+
 [[bin]]
 path = "src/main.rs"
 name = "skrd"

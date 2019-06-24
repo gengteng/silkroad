@@ -12,7 +12,7 @@ pub enum Command {
     #[structopt(name = "update")]
     Update(update::Update),
 
-    /// Start a full featured crates.io mirror
+    /// Start a full featured registry
     #[structopt(name = "serve")]
     Serve(serve::Serve),
 

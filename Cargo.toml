@@ -17,7 +17,8 @@ serde_derive = "1.0.92"
 structopt = "0.2"
 rustls = "0.15"
 git2 = "0.9.1"
+failure = "0.1.5"
 
 [[bin]]
 path = "src/main.rs"
-name = "srd"
+name = "skrd"

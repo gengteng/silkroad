@@ -108,12 +108,12 @@ impl Serve {
                 )
                 .service(web::resource("/crates.io-index/info/refs").to(git_info_refs))
                 .service(
-                    actix_files::Files::new("/crates.io-index", index_path.clone()) // http://localhost/crates.io-index/to/ki/tokio
+                    actix_files::Files::new("/crates.io-index", &index_path) // http://localhost/crates.io-index/to/ki/tokio
                         .show_files_listing(),
                 )
                 .default_service(
                     web::resource("")
-                        .route(web::get().to(p404))
+                        .route(web::get().to(return_404))
                         // all requests that are not `GET`
                         .route(
                             web::route()
@@ -176,7 +176,7 @@ fn redirect_download(path: web::Path<(String, String)>) -> HttpResponse {
 }
 
 /// 404 handler
-fn p404(request: HttpRequest) -> HttpResponse {
+fn return_404(request: HttpRequest) -> HttpResponse {
     info!("REQ: {:?} {}:{} <= RESP: 404 Not Found",
           request.version(),
           request.method(),

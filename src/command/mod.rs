@@ -3,6 +3,7 @@ use structopt::StructOpt;
 pub mod pack;
 pub mod serve;
 pub mod update;
+pub mod execute;
 
 /// SilkRoad Command
 #[derive(Debug, StructOpt)]
@@ -19,4 +20,8 @@ pub enum Command {
     /// Pack up index and crates for use in a LAN
     #[structopt(name = "pack")]
     Pack(pack::Pack),
+
+    /// Execute the commands in a TOML file
+    #[structopt(name = "exec")]
+    Execute(execute::Execute),
 }

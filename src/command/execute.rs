@@ -1,10 +1,9 @@
-use structopt::StructOpt;
 use std::path::PathBuf;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "exec")]
 pub struct Execute {
-
     #[structopt(
         long = "toml",
         short = "f",
@@ -12,5 +11,5 @@ pub struct Execute {
         value_name = "PATH",
         parse(try_from_str)
     )]
-    toml: PathBuf
+    toml: PathBuf,
 }

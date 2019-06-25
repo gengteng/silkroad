@@ -5,12 +5,12 @@ use rustls::{
 };
 use std::{fs::File, io::BufReader, process::Command as PsCommand};
 
-use crate::error::{SkrdResult, SkrdError};
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
-use std::path::{PathBuf, Path};
-use structopt::StructOpt;
-use std::fmt::Debug;
+use crate::error::{SkrdError, SkrdResult};
 use actix_web::Responder;
+use std::fmt::Debug;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -54,7 +54,7 @@ pub struct Serve {
 
 struct CertAndKey {
     raw: String,
-    config: ServerConfig
+    config: ServerConfig,
 }
 
 impl Debug for CertAndKey {
@@ -73,19 +73,18 @@ impl std::str::FromStr for CertAndKey {
                 let mut config = ServerConfig::new(NoClientAuth::new());
 
                 let cert_file = &mut BufReader::new(File::open(&s[..n])?);
-                let key_file = &mut BufReader::new(File::open(&s[n+1..])?);
-                let cert_chain = certs(cert_file)
-                    .map_err(|_| rustls::TLSError::General("Extract certificates error".to_owned()))?;
-                let mut keys = rsa_private_keys(key_file)
-                    .map_err(|_| rustls::TLSError::General("Extract RSA private keys error".to_owned()))?;
+                let key_file = &mut BufReader::new(File::open(&s[n + 1..])?);
+                let cert_chain = certs(cert_file).map_err(|_| {
+                    rustls::TLSError::General("Extract certificates error".to_owned())
+                })?;
+                let mut keys = rsa_private_keys(key_file).map_err(|_| {
+                    rustls::TLSError::General("Extract RSA private keys error".to_owned())
+                })?;
                 config.set_single_cert(cert_chain, keys.remove(0))?;
 
-                Ok(CertAndKey {
-                    raw,
-                    config
-                })
+                Ok(CertAndKey { raw, config })
             }
-            None => Err(SkrdError::Custom("Ssl-files format error".to_owned()))
+            None => Err(SkrdError::Custom("Ssl-files format error".to_owned())),
         }
     }
 }
@@ -179,10 +178,12 @@ fn redirect_download(path: web::Path<(String, String)>) -> HttpResponse {
 
 /// 404 handler
 fn return_404(request: HttpRequest) -> HttpResponse {
-    info!("REQ: {:?} {}:{} <= RESP: 404 Not Found",
-          request.version(),
-          request.method(),
-          request.path());
+    info!(
+        "REQ: {:?} {}:{} <= RESP: 404 Not Found",
+        request.version(),
+        request.method(),
+        request.path()
+    );
     debug!("request:{:?}", request);
     HttpResponse::NotFound().finish()
 }
@@ -203,7 +204,6 @@ fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpRe
     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
     match get_service(request.query_string()) {
         Some(service) => {
-
             // TODO: configurable permission
             if service != "upload-pack" && service != "receive-pack" {
                 return HttpResponse::NotFound().finish();
@@ -237,7 +237,10 @@ fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpRe
     }
 }
 
-fn get_head(request: HttpRequest, index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
+fn get_head(
+    request: HttpRequest,
+    index_path: web::Data<PathBuf>,
+) -> std::io::Result<impl Responder> {
     get_text_file(request, index_path, "HEAD")
 }
 
@@ -254,21 +257,43 @@ fn get_pack_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpRe
     HttpResponse::NotFound().finish()
 }
 
-fn get_index_file(request: HttpRequest, index_path: web::Data<PathBuf>, filename: &str) -> HttpResponse {
+fn get_index_file(
+    request: HttpRequest,
+    index_path: web::Data<PathBuf>,
+    filename: &str,
+) -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
 
-fn get_text_file(request: HttpRequest, index_path: web::Data<PathBuf>, filename: &str) -> std::io::Result<impl Responder> {
+fn get_text_file(
+    request: HttpRequest,
+    index_path: web::Data<PathBuf>,
+    filename: &str,
+) -> std::io::Result<impl Responder> {
     send_file(mime::TEXT_PLAIN, index_path, filename)
 }
 
-fn send_file(content_type: mime::Mime, index_path: web::Data<PathBuf>, filename: &str) -> std::io::Result<impl Responder> {
-    Ok(actix_files::NamedFile::open(index_path.get_ref().to_owned().join(".git").join(filename))?
-        .set_content_type(content_type).use_last_modified(true))
+fn send_file(
+    content_type: mime::Mime,
+    index_path: web::Data<PathBuf>,
+    filename: &str,
+) -> std::io::Result<impl Responder> {
+    Ok(
+        actix_files::NamedFile::open(index_path.get_ref().to_owned().join(".git").join(filename))?
+            .set_content_type(content_type)
+            .use_last_modified(true),
+    )
 }
 
 // say goodbye to strongly typed mime
-fn send_file_without_strongly_typed_mime(content_type: &str, index_path: web::Data<PathBuf>, filename: &str) -> std::io::Result<impl Responder> {
-    Ok(actix_files::NamedFile::open(path)?
-        .use_last_modified(true).with_header("Content-Type", content_type))
+fn send_file_without_strongly_typed_mime(
+    content_type: &str,
+    index_path: web::Data<PathBuf>,
+    filename: &str,
+) -> std::io::Result<impl Responder> {
+    Ok(
+        actix_files::NamedFile::open(index_path.get_ref().to_owned().join(".git").join(filename))?
+            .use_last_modified(true)
+            .with_header("Content-Type", content_type),
+    )
 }

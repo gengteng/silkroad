@@ -1,9 +1,9 @@
 use structopt::StructOpt;
 
+pub mod execute;
 pub mod pack;
 pub mod serve;
 pub mod update;
-pub mod execute;
 
 /// SilkRoad Command
 #[derive(Debug, StructOpt)]

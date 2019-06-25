@@ -29,7 +29,7 @@ fn main() -> SkrdResult<()> {
             "Subcommand pack is unimplemented!".to_owned(),
         )),
         Command::Execute(_exec) => Err(SkrdError::Custom(
-            "Subcommand exec is unimplemented".to_owned()
-        ))
+            "Subcommand exec is unimplemented".to_owned(),
+        )),
     }
 }

@@ -10,6 +10,7 @@ use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::path::{PathBuf, Path};
 use structopt::StructOpt;
 use std::fmt::Debug;
+use actix_web::Responder;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -236,10 +237,11 @@ fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpRe
     }
 }
 
-fn get_head(request: HttpRequest, index_path: web::Data<PathBuf>) -> std::io::Result<actix_files::NamedFile> {
-    get_text_file("HEAD", request, index_path)
+fn get_head(request: HttpRequest, index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
+    get_text_file(request, index_path, "HEAD")
 }
 
+// /objects/info/packs
 fn get_info_packs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
@@ -252,16 +254,21 @@ fn get_pack_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpRe
     HttpResponse::NotFound().finish()
 }
 
-fn get_index_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    //TODO: fuck mime::Mime
-    HttpResponse::Ok().content_type("application/x-git-packed-objects-toc").finish()
+fn get_index_file(request: HttpRequest, index_path: web::Data<PathBuf>, filename: &str) -> HttpResponse {
+    HttpResponse::NotFound().finish()
 }
 
-fn get_text_file(filename: &str, request: HttpRequest, index_path: web::Data<PathBuf>) -> std::io::Result<actix_files::NamedFile> {
-    send_file(mime::TEXT_PLAIN, index_path.get_ref().to_owned().join(filename))
+fn get_text_file(request: HttpRequest, index_path: web::Data<PathBuf>, filename: &str) -> std::io::Result<impl Responder> {
+    send_file(mime::TEXT_PLAIN, index_path, filename)
 }
 
-fn send_file<P: AsRef<Path>>(content_type: mime::Mime, path: P) -> std::io::Result<actix_files::NamedFile> {
-    Ok(actix_files::NamedFile::open(path)?
+fn send_file(content_type: mime::Mime, index_path: web::Data<PathBuf>, filename: &str) -> std::io::Result<impl Responder> {
+    Ok(actix_files::NamedFile::open(index_path.get_ref().to_owned().join(".git").join(filename))?
         .set_content_type(content_type).use_last_modified(true))
+}
+
+// say goodbye to strongly typed mime
+fn send_file_without_strongly_typed_mime(content_type: &str, index_path: web::Data<PathBuf>, filename: &str) -> std::io::Result<impl Responder> {
+    Ok(actix_files::NamedFile::open(path)?
+        .use_last_modified(true).with_header("Content-Type", content_type))
 }

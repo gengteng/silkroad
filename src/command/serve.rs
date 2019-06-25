@@ -7,7 +7,7 @@ use std::{fs::File, io::BufReader, process::Command as PsCommand};
 
 use crate::error::{SkrdResult, SkrdError};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use structopt::StructOpt;
 use std::fmt::Debug;
 
@@ -106,7 +106,8 @@ impl Serve {
                 .service(
                     actix_files::Files::new("/crates", crates_path.clone()).show_files_listing(),
                 )
-                .service(web::resource("/crates.io-index/info/refs").to(git_info_refs))
+                .service(web::resource("/crates.io-index/info/refs").to(get_info_refs))
+                .service(web::resource("/crates.io-index/HEAD").to(get_head))
                 .service(
                     actix_files::Files::new("/crates.io-index", &index_path) // http://localhost/crates.io-index/to/ki/tokio
                         .show_files_listing(),
@@ -186,9 +187,9 @@ fn return_404(request: HttpRequest) -> HttpResponse {
 }
 
 fn get_service(query: &str) -> Option<&str> {
-    let key = "service=";
-    query.find(key).and_then(|i| {
-        let start = i + key.len();
+    let head = "service=git-";
+    query.find(head).and_then(|i| {
+        let start = i + head.len();
         match &query[start..].find('&') {
             Some(u) => Some(&query[start..u + start]),
             None => Some(&query[start..]),
@@ -196,27 +197,71 @@ fn get_service(query: &str) -> Option<&str> {
     })
 }
 
-// http://localhost/crates.io-index/info/refs?service=git-upload-pack
-fn git_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+// http://localhost/crates.io-index/info/refs?service=git-xxxxxx-pack
+fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    // TODO: check Content-Type: application/x-git-xxxxx-pack-request
     match get_service(request.query_string()) {
-        Some("git-upload-pack") => {
-            let mut output = PsCommand::new("git")
-                .arg("upload-pack")
+        Some(service) => {
+
+            // TODO: configurable permission
+            if service != "upload-pack" && service != "receive-pack" {
+                return HttpResponse::NotFound().finish();
+            }
+
+            let result = PsCommand::new("git")
+                .arg(service)
                 .arg(index_path.get_ref())
                 .arg("--advertise-refs") // exit immediately after initial ref advertisement
-                .output()
-                .expect("output error");
+                .output();
 
-            let mut body = Vec::from("001e# service=git-upload-pack\n");
-            body.append(&mut output.stdout);
+            match result {
+                Ok(mut output) => {
+                    let mut body = Vec::from(format!("001e# service={}\n", service));
+                    body.append(&mut output.stdout);
 
-            HttpResponse::Ok()
-                .content_type("application/x-git-upload-pack-advertisement")
-                .body(body)
+                    HttpResponse::Ok()
+                        .content_type(format!("application/x-{}-advertisement", service))
+                        .body(body)
+                }
+                Err(e) => {
+                    error!("{} service error: {}", service, e);
+                    HttpResponse::InternalServerError().finish()
+                }
+            }
         }
         _ => {
             error!("get service error: {:?}", request);
             HttpResponse::NotFound().finish()
         }
     }
+}
+
+fn get_head(request: HttpRequest, index_path: web::Data<PathBuf>) -> std::io::Result<actix_files::NamedFile> {
+    get_text_file("HEAD", request, index_path)
+}
+
+fn get_info_packs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::NotFound().finish()
+}
+
+fn get_loose_object(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::NotFound().finish()
+}
+
+fn get_pack_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::NotFound().finish()
+}
+
+fn get_index_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    //TODO: fuck mime::Mime
+    HttpResponse::Ok().content_type("application/x-git-packed-objects-toc").finish()
+}
+
+fn get_text_file(filename: &str, request: HttpRequest, index_path: web::Data<PathBuf>) -> std::io::Result<actix_files::NamedFile> {
+    send_file(mime::TEXT_PLAIN, index_path.get_ref().to_owned().join(filename))
+}
+
+fn send_file<P: AsRef<Path>>(content_type: mime::Mime, path: P) -> std::io::Result<actix_files::NamedFile> {
+    Ok(actix_files::NamedFile::open(path)?
+        .set_content_type(content_type).use_last_modified(true))
 }

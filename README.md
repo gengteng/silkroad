@@ -6,11 +6,11 @@
 
 - [ ] Serve a index repository and crates
     - [ ] Git&HTTP server
-    - [ ] no dependency on the local git command line
+    - [ ] No dependency on the `git` command
 - [ ] Periodic update
     - [ ] Downloader
     - [ ] Timer
-- [ ] Site Migration
+- [ ] Server Migration
     - [ ] Package
     - [ ] Unpack
 - [ ] Execute a toml file as a command

@@ -7,7 +7,7 @@ impl LoggerGuard {
     pub fn init(name: &'static str) -> Self {
         println!("Initializing logger...");
 
-        let decorator = slog_term::TermDecorator::new().stderr().build();
+        let decorator = slog_term::TermDecorator::new().stdout().build();
         let drain = slog_term::CompactFormat::new(decorator)
             .use_custom_timestamp(timestamp_local_ymdhms)
             .build()

@@ -15,6 +15,8 @@ use crate::error::{SkrdError, SkrdResult};
 mod log;
 use crate::log::LoggerGuard;
 
+mod util;
+
 fn main() -> SkrdResult<()> {
     let _logger_guard = LoggerGuard::init("SilkRoad");
 

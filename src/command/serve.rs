@@ -1,16 +1,19 @@
+use actix_web::Responder;
 use actix_web::{guard, http::header, web, App, HttpRequest, HttpResponse, HttpServer};
 use rustls::{
     internal::pemfile::{certs, rsa_private_keys},
     NoClientAuth, ServerConfig,
 };
-use std::{fs::File, io::BufReader, process::Command as PsCommand};
-
-use crate::error::{SkrdError, SkrdResult};
-use actix_web::Responder;
 use std::fmt::Debug;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::{Path, PathBuf};
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::{fs::File, io::BufReader, process::Command as PsCommand};
 use structopt::StructOpt;
+
+use crate::{
+    error::{SkrdError, SkrdResult},
+    util::{get_service_from_query_string, sock_addr_v4},
+};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -99,19 +102,9 @@ impl Serve {
         let server = HttpServer::new(move || {
             App::new()
                 .data(index_path.clone())
-                .service(
-                    web::resource("/api/v1/crates/{name}/{version}/download")
-                        .route(web::get().to(redirect_download)),
-                )
-                .service(
-                    actix_files::Files::new("/crates", crates_path.clone()).show_files_listing(),
-                )
-                .service(web::resource("/crates.io-index/info/refs").to(get_info_refs))
-                .service(web::resource("/crates.io-index/HEAD").to(get_head))
-                .service(
-                    actix_files::Files::new("/crates.io-index", &index_path) // http://localhost/crates.io-index/to/ki/tokio
-                        .show_files_listing(),
-                )
+                .service(api_scope())
+                .service(index_scope(&index_path))
+                .service(crates_scope(&crates_path))
                 .default_service(
                     web::resource("")
                         .route(web::get().to(return_404))
@@ -126,14 +119,22 @@ impl Serve {
 
         match &self.keys {
             Some(cert_key) => {
-                let addr = self.addr.unwrap_or(sock_addr_v4(127, 0, 0, 1, 443));
+                let addr = self.addr.unwrap_or_else(|| sock_addr_v4(127, 0, 0, 1, 443));
                 server.bind_rustls(addr, cert_key.config.clone())?.start();
-                info!("Registry started at https://{}:{}.", addr.ip(), addr.port());
+                info!(
+                    "Registry server started at https://{}:{}.",
+                    addr.ip(),
+                    addr.port()
+                );
             }
             None => {
-                let addr = self.addr.unwrap_or(sock_addr_v4(127, 0, 0, 1, 80));
+                let addr = self.addr.unwrap_or_else(|| sock_addr_v4(127, 0, 0, 1, 80));
                 server.bind(addr)?.start();
-                info!("Registry started at http://{}:{}.", addr.ip(), addr.port());
+                info!(
+                    "Registry server started at http://{}:{}.",
+                    addr.ip(),
+                    addr.port()
+                );
             }
         }
         sys.run()?;
@@ -141,8 +142,45 @@ impl Serve {
     }
 }
 
-fn sock_addr_v4(a: u8, b: u8, c: u8, d: u8, port: u16) -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(a, b, c, d)), port)
+fn api_scope() -> actix_web::Scope {
+    web::scope("/api/v1").route(
+        "/crates/{name}/{version}/download",
+        web::get().to(redirect_download),
+    )
+}
+
+fn index_scope<P: Into<PathBuf>>(index_path: P) -> actix_web::Scope {
+    web::scope("/crates.io-index")
+        .route("/git-upload-pack", web::post().to(git_upload_pack))
+        .route("/git-receive-pack", web::post().to(git_receive_pack))
+        .route("/info/refs", web::get().to(get_info_refs))
+        .route("/HEAD", web::get().to(get_head))
+        .service(
+            web::scope("/objects")
+                .service(
+                    web::scope("/info")
+                        .route("/alternates", web::get().to(get_alternates))
+                        .route("/http-alternates", web::get().to(get_http_alternates))
+                        .route("/packs", web::get().to(get_info_packs))
+                        .route("/{file}", web::get().to(get_info_file)),
+                )
+                .service(
+                    web::scope("/pack").route("/{file}", web::get().to(get_pack_file)), //                .route("/{file:pack-[0-9a-f]{40}\\.idx}", web::get().to(get_index_file))
+                )
+                .route(
+                    "/{dir:[0-9a-f]{2}}/{file:[0-9a-f]{38}}",
+                    web::get().to(get_loose_object),
+                ),
+        )
+        .default_service(
+            actix_files::Files::new("", index_path.into()) // http://localhost/crates.io-index/to/ki/tokio
+                .show_files_listing(),
+        )
+}
+
+fn crates_scope<P: Into<PathBuf>>(crates_path: P) -> actix_web::Scope {
+    web::scope("/crates")
+        .service(actix_files::Files::new("/", crates_path.into()).show_files_listing())
 }
 
 // /api/v1/crates/tokio/0.1.21/download
@@ -184,25 +222,21 @@ fn return_404(request: HttpRequest) -> HttpResponse {
         request.method(),
         request.path()
     );
-    debug!("request:{:?}", request);
     HttpResponse::NotFound().finish()
 }
 
-fn get_service(query: &str) -> Option<&str> {
-    let head = "service=git-";
-    query.find(head).and_then(|i| {
-        let start = i + head.len();
-        match &query[start..].find('&') {
-            Some(u) => Some(&query[start..u + start]),
-            None => Some(&query[start..]),
-        }
-    })
+fn git_upload_pack(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::Ok().finish()
+}
+
+fn git_receive_pack(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::Ok().finish()
 }
 
 // http://localhost/crates.io-index/info/refs?service=git-xxxxxx-pack
 fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
-    match get_service(request.query_string()) {
+    match get_service_from_query_string(request.query_string()) {
         Some(service) => {
             // TODO: configurable permission
             if service != "upload-pack" && service != "receive-pack" {
@@ -244,25 +278,36 @@ fn get_head(
     get_text_file(request, index_path, "HEAD")
 }
 
-// /objects/info/packs
-fn get_info_packs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::NotFound().finish()
+fn get_alternates(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::Ok().body(format!("get alternates: {}", request.path()))
 }
 
-fn get_loose_object(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::NotFound().finish()
+fn get_http_alternates(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::Ok().body(format!("get http alternates: {}", request.path()))
+}
+
+fn get_info_packs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::Ok().body(format!("get info packs: {}", request.path()))
+}
+
+fn get_info_file(request: HttpRequest, path: web::Path<String>) -> HttpResponse {
+    HttpResponse::Ok().body(format!("get info file: {}", request.path()))
+}
+
+fn get_loose_object(
+    request: HttpRequest,
+    path: web::Path<(String, String)>,
+    index_path: web::Data<PathBuf>,
+) -> HttpResponse {
+    HttpResponse::Ok().body(format!("get loose object packs: {}", request.path()))
+}
+
+fn get_index_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+    HttpResponse::Ok().body(format!("get index file: {}", request.path()))
 }
 
 fn get_pack_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::NotFound().finish()
-}
-
-fn get_index_file(
-    request: HttpRequest,
-    index_path: web::Data<PathBuf>,
-    filename: &str,
-) -> HttpResponse {
-    HttpResponse::NotFound().finish()
+    HttpResponse::Ok().body(format!("get pack file: {}", request.path()))
 }
 
 fn get_text_file(
@@ -286,7 +331,7 @@ fn send_file(
 }
 
 // say goodbye to strongly typed mime
-fn send_file_without_strongly_typed_mime(
+fn send_file_with_custom_mime(
     content_type: &str,
     index_path: web::Data<PathBuf>,
     filename: &str,

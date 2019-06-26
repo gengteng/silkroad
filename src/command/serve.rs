@@ -1,19 +1,22 @@
-use actix_web::Responder;
-use actix_web::{guard, http::header, web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{
+    guard, http::header, middleware::DefaultHeaders, web, App, HttpRequest, HttpResponse,
+    HttpServer, Responder,
+};
 use rustls::{
     internal::pemfile::{certs, rsa_private_keys},
     NoClientAuth, ServerConfig,
 };
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{fs::File, io::BufReader, process::Command as PsCommand};
 use structopt::StructOpt;
 
 use crate::{
     error::{SkrdError, SkrdResult},
-    util::{get_service_from_query_string, sock_addr_v4},
+    util::{cache_forever, get_service_from_query_string, no_cache, sock_addr_v4},
 };
+use std::io::Read;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -102,6 +105,10 @@ impl Serve {
         let server = HttpServer::new(move || {
             App::new()
                 .data(index_path.clone())
+                .wrap(DefaultHeaders::new().header(
+                    "server",
+                    format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
+                ))
                 .service(api_scope())
                 .service(index_scope(&index_path))
                 .service(crates_scope(&crates_path))
@@ -165,7 +172,7 @@ fn index_scope<P: Into<PathBuf>>(index_path: P) -> actix_web::Scope {
                         .route("/{file}", web::get().to(get_info_file)),
                 )
                 .service(
-                    web::scope("/pack").route("/{file}", web::get().to(get_pack_file)), //                .route("/{file:pack-[0-9a-f]{40}\\.idx}", web::get().to(get_index_file))
+                    web::scope("/pack").route("/{file}", web::get().to(get_pack_or_index_file)), //.route("/{file:pack-[0-9a-f]{40}\\.idx}", web::get().to(get_index_file))
                 )
                 .route(
                     "/{dir:[0-9a-f]{2}}/{file:[0-9a-f]{38}}",
@@ -225,22 +232,29 @@ fn return_404(request: HttpRequest) -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
 
-fn git_upload_pack(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+fn git_upload_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
-fn git_receive_pack(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+fn git_receive_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
 // http://localhost/crates.io-index/info/refs?service=git-xxxxxx-pack
-fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
+// TODO: # git command clone error
+//       > git clone http://localhost/crates.io-index
+//       Cloning into 'crates.io-index'...
+//       fatal: http://localhost/crates.io-index/info/refs not valid: is this a git repository?
+fn get_info_refs(
+    request: HttpRequest,
+    index_path: web::Data<PathBuf>,
+) -> std::io::Result<impl Responder> {
     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
     match get_service_from_query_string(request.query_string()) {
         Some(service) => {
             // TODO: configurable permission
             if service != "upload-pack" && service != "receive-pack" {
-                return HttpResponse::NotFound().finish();
+                return Ok(no_cache(HttpResponse::NotFound().finish()));
             }
 
             let result = PsCommand::new("git")
@@ -254,80 +268,105 @@ fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpRe
                     let mut body = Vec::from(format!("001e# service={}\n", service));
                     body.append(&mut output.stdout);
 
-                    HttpResponse::Ok()
-                        .content_type(format!("application/x-{}-advertisement", service))
-                        .body(body)
+                    Ok(no_cache(
+                        HttpResponse::Ok()
+                            .content_type(format!("application/x-{}-advertisement", service))
+                            .body(body),
+                    ))
                 }
                 Err(e) => {
                     error!("{} service error: {}", service, e);
-                    HttpResponse::InternalServerError().finish()
+                    Ok(no_cache(HttpResponse::NotFound().finish()))
                 }
             }
         }
         _ => {
-            error!("get service error: {:?}", request);
-            HttpResponse::NotFound().finish()
+            let mut body = String::new();
+            File::open(index_path.get_ref().join(".git/info/refs"))?.read_to_string(&mut body)?;
+            Ok(no_cache(
+                HttpResponse::Ok()
+                    .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+                    .body(body),
+            ))
         }
     }
 }
 
-fn get_head(
-    request: HttpRequest,
+fn get_head(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
+    send_text_file(index_path, "HEAD")
+}
+
+fn get_alternates(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
+    send_text_file(index_path, "objects/info/alternates")
+}
+
+fn get_http_alternates(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
+    send_text_file(index_path, "objects/info/http-alternates")
+}
+
+fn get_info_packs(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
+    send_file_with_custom_mime(
+        "text/plain; charset=utf-8",
+        index_path,
+        "objects/info/packs",
+    )
+    .map(cache_forever)
+}
+
+fn get_info_file(
     index_path: web::Data<PathBuf>,
+    path: web::Path<String>,
 ) -> std::io::Result<impl Responder> {
-    get_text_file(request, index_path, "HEAD")
+    send_text_file(index_path, &format!("objects/info/{}", path))
 }
 
-fn get_alternates(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::Ok().body(format!("get alternates: {}", request.path()))
-}
-
-fn get_http_alternates(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::Ok().body(format!("get http alternates: {}", request.path()))
-}
-
-fn get_info_packs(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::Ok().body(format!("get info packs: {}", request.path()))
-}
-
-fn get_info_file(request: HttpRequest, path: web::Path<String>) -> HttpResponse {
-    HttpResponse::Ok().body(format!("get info file: {}", request.path()))
-}
-
+// http://localhost/crates.io-index/objects/2f/d95367332005518f56b336634d85c099e2678a
 fn get_loose_object(
-    request: HttpRequest,
     path: web::Path<(String, String)>,
     index_path: web::Data<PathBuf>,
-) -> HttpResponse {
-    HttpResponse::Ok().body(format!("get loose object packs: {}", request.path()))
-}
-
-fn get_index_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::Ok().body(format!("get index file: {}", request.path()))
-}
-
-fn get_pack_file(request: HttpRequest, index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::Ok().body(format!("get pack file: {}", request.path()))
-}
-
-fn get_text_file(
-    request: HttpRequest,
-    index_path: web::Data<PathBuf>,
-    filename: &str,
 ) -> std::io::Result<impl Responder> {
-    send_file(mime::TEXT_PLAIN, index_path, filename)
-}
-
-fn send_file(
-    content_type: mime::Mime,
-    index_path: web::Data<PathBuf>,
-    filename: &str,
-) -> std::io::Result<impl Responder> {
-    Ok(
-        actix_files::NamedFile::open(index_path.get_ref().to_owned().join(".git").join(filename))?
-            .set_content_type(content_type)
-            .use_last_modified(true),
+    send_file_with_custom_mime(
+        "application/x-git-loose-object",
+        index_path,
+        &format!("objects/{}/{}", path.0, path.1),
     )
+    .map(cache_forever)
+}
+
+// http://localhost/crates.io-index/objects/pack/pack-63c9d4a58e9d4e29c97b1afdd26c1d39be6c7d10.idx
+// http://localhost/crates.io-index/objects/pack/pack-63c9d4a58e9d4e29c97b1afdd26c1d39be6c7d10.pack
+fn get_pack_or_index_file(
+    request: HttpRequest,
+    path: web::Path<String>,
+    index_path: web::Data<PathBuf>,
+) -> std::io::Result<impl Responder> {
+    let url_path = request.path();
+    let content_type = if url_path.ends_with(".idx") {
+        "application/x-git-packed-objects-toc"
+    } else if url_path.ends_with(".pack") {
+        "application/x-git-packed-objects"
+    } else {
+        return Err(std::io::ErrorKind::NotFound.into());
+    };
+
+    send_file_with_custom_mime(content_type, index_path, &format!("objects/pack/{}", path))
+        .map(cache_forever)
+}
+
+fn send_text_file(
+    index_path: web::Data<PathBuf>,
+    filename: &str,
+) -> std::io::Result<impl Responder> {
+    send_file(mime::TEXT_PLAIN, index_path.get_ref().join(filename)).map(no_cache)
+}
+
+fn send_file<P: AsRef<Path>>(
+    content_type: mime::Mime,
+    filepath: P,
+) -> std::io::Result<impl Responder> {
+    Ok(actix_files::NamedFile::open(filepath)?
+        .set_content_type(content_type)
+        .use_last_modified(true))
 }
 
 // say goodbye to strongly typed mime

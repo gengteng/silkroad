@@ -24,10 +24,11 @@ serde = "1.0.92"
 serde_json = "1.0.39"
 serde_derive = "1.0.92"
 
-log = { version = "0.4.6", features = ["max_level_trace", "release_max_level_debug"] }
+log = { version = "0.3.9", features = ["max_level_trace", "release_max_level_debug"] }
 slog = { version = "2.4.1", features = ["max_level_trace", "release_max_level_debug"] }
+slog-scope = "4.1.1"
 slog-async = { version = "2.3.0", default-features = false }
-slog-global = { version = "0.1", git = "https://github.com/breeswish/slog-global.git", rev = "91904ade" }
+slog-stdlog = "3.0.2"
 slog-term = "2.4.0"
 slog_derive = "0.1"
 

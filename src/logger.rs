@@ -1,34 +1,35 @@
-use slog::{Drain, Logger};
+use slog::{Drain, Logger, Level};
+use slog_scope::GlobalLoggerGuard;
 use slog_term;
 
-pub struct LoggerGuard;
+use crate::error::SkrdResult;
+use log::LogLevelFilter;
+
+pub struct LoggerGuard(GlobalLoggerGuard);
 
 impl LoggerGuard {
-    pub fn init(name: &'static str) -> Self {
-        println!("Initializing logger...");
-
+    pub fn init(name: &'static str, level: Level) -> SkrdResult<Self> {
         let decorator = slog_term::TermDecorator::new().stdout().build();
         let drain = slog_term::CompactFormat::new(decorator)
             .use_custom_timestamp(timestamp_local_ymdhms)
             .build()
             .fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
+        let drain = slog_async::Async::new(drain).build().filter_level(level).fuse();
 
         let logger = Logger::root(drain, o!(name => env!("CARGO_PKG_VERSION")));
 
-        slog_global::set_global(logger);
+        let guard = slog_scope::set_global_logger(logger);
+        slog_stdlog::init()?;
 
         info!("Logger initialized.");
 
-        LoggerGuard
+        Ok(LoggerGuard(guard))
     }
 }
 
 impl Drop for LoggerGuard {
     fn drop(&mut self) {
-        info!("Uninitializing logger...");
-        slog_global::clear_global();
-        println!("Logger uninitialized.");
+        info!("Logger uninitialized.");
     }
 }
 

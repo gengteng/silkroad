@@ -2,7 +2,7 @@
 extern crate slog;
 
 #[macro_use]
-extern crate slog_global;
+extern crate log;
 
 use structopt::StructOpt;
 
@@ -12,13 +12,14 @@ use command::Command;
 mod error;
 use crate::error::{SkrdError, SkrdResult};
 
-mod log;
-use crate::log::LoggerGuard;
+mod logger;
+use crate::logger::LoggerGuard;
+use slog::Level;
 
 mod util;
 
 fn main() -> SkrdResult<()> {
-    let _logger_guard = LoggerGuard::init("SilkRoad");
+    let _logger_guard = LoggerGuard::init("SilkRoad", Level::Info);
 
     let command = Command::from_args();
 

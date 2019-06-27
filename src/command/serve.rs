@@ -1,6 +1,8 @@
 use actix_web::{
-    guard, http::header, middleware::DefaultHeaders, web, App, HttpRequest, HttpResponse,
-    HttpServer, Responder,
+    guard,
+    http::header,
+    middleware::{DefaultHeaders, Logger},
+    web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 use rustls::{
     internal::pemfile::{certs, rsa_private_keys},
@@ -16,7 +18,7 @@ use crate::{
     error::{SkrdError, SkrdResult},
     util::{cache_forever, get_service_from_query_string, no_cache, sock_addr_v4},
 };
-use std::io::Read;
+use std::io::{Read, ErrorKind};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -105,6 +107,7 @@ impl Serve {
         let server = HttpServer::new(move || {
             App::new()
                 .data(index_path.clone())
+                .wrap(Logger::default())
                 .wrap(DefaultHeaders::new().header(
                     "server",
                     format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
@@ -222,13 +225,7 @@ fn redirect_download(path: web::Path<(String, String)>) -> HttpResponse {
 }
 
 /// 404 handler
-fn return_404(request: HttpRequest) -> HttpResponse {
-    info!(
-        "REQ: {:?} {}:{} <= RESP: 404 Not Found",
-        request.version(),
-        request.method(),
-        request.path()
-    );
+fn return_404() -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
 
@@ -250,46 +247,65 @@ fn get_info_refs(
     index_path: web::Data<PathBuf>,
 ) -> std::io::Result<impl Responder> {
     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
-    match get_service_from_query_string(request.query_string()) {
-        Some(service) => {
-            // TODO: configurable permission
-            if service != "upload-pack" && service != "receive-pack" {
-                return Ok(no_cache(HttpResponse::NotFound().finish()));
-            }
+    //    match get_service_from_query_string(request.query_string()) {
+    //        Some(service) => {
+    //            // TODO: configurable permission
+    //            if service != "upload-pack" && service != "receive-pack" {
+    //                return Ok(no_cache(HttpResponse::NotFound().finish()));
+    //            }
+    //
+    //            let result = PsCommand::new("git")
+    //                .arg(service)
+    //                .arg(index_path.get_ref())
+    //                .arg("--advertise-refs") // exit immediately after initial ref advertisement
+    //                .output();
+    //
+    //            match result {
+    //                Ok(mut output) => {
+    //                    let mut body = Vec::from(format!("001e# service={}\n", service));
+    //                    body.append(&mut output.stdout);
+    //
+    //                    Ok(no_cache(
+    //                        HttpResponse::Ok()
+    //                            .content_type(format!("application/x-{}-advertisement", service))
+    //                            .body(body),
+    //                    ))
+    //                }
+    //                Err(e) => {
+    //                    error!("{} service error: {}", service, e);
+    //                    Ok(no_cache(HttpResponse::NotFound().finish()))
+    //                }
+    //            }
+    //        }
+    //        _ => {
+    //            let mut body = String::new();
+    //            File::open(index_path.get_ref().join(".git/info/refs"))?.read_to_string(&mut body)?;
+    //            Ok(no_cache(
+    //                HttpResponse::Ok()
+    //                    .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+    //                    .body(body),
+    //            ))
+    //        }
+    //    }
 
-            let result = PsCommand::new("git")
-                .arg(service)
-                .arg(index_path.get_ref())
-                .arg("--advertise-refs") // exit immediately after initial ref advertisement
-                .output();
+    let ref_path = index_path.get_ref().join(".git/info/refs");
+    let mut body = String::new();
+    File::open(&ref_path).or_else(|_| {
+        let status = PsCommand::new("git").current_dir(index_path.get_ref())
+            .arg("update-server-info") // exit immediately after initial ref advertisement
+            .status()?;
 
-            match result {
-                Ok(mut output) => {
-                    let mut body = Vec::from(format!("001e# service={}\n", service));
-                    body.append(&mut output.stdout);
-
-                    Ok(no_cache(
-                        HttpResponse::Ok()
-                            .content_type(format!("application/x-{}-advertisement", service))
-                            .body(body),
-                    ))
-                }
-                Err(e) => {
-                    error!("{} service error: {}", service, e);
-                    Ok(no_cache(HttpResponse::NotFound().finish()))
-                }
-            }
+        if status.success() {
+            File::open(&ref_path)
+        } else {
+            Err(std::io::Error::new(ErrorKind::Other, "git upload-server-info error"))
         }
-        _ => {
-            let mut body = String::new();
-            File::open(index_path.get_ref().join(".git/info/refs"))?.read_to_string(&mut body)?;
-            Ok(no_cache(
-                HttpResponse::Ok()
-                    .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-                    .body(body),
-            ))
-        }
-    }
+    })?.read_to_string(&mut body)?;
+    Ok(no_cache(
+        HttpResponse::Ok()
+            .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+            .body(body),
+    ))
 }
 
 fn get_head(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
@@ -357,7 +373,8 @@ fn send_text_file(
     index_path: web::Data<PathBuf>,
     filename: &str,
 ) -> std::io::Result<impl Responder> {
-    send_file(mime::TEXT_PLAIN, index_path.get_ref().join(filename)).map(no_cache)
+    let path = index_path.get_ref().join(".git").join(filename);
+    send_file(mime::TEXT_PLAIN, path).map(no_cache)
 }
 
 fn send_file<P: AsRef<Path>>(

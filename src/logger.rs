@@ -1,9 +1,8 @@
-use slog::{Drain, Logger, Level};
+use slog::{Drain, Level, Logger};
 use slog_scope::GlobalLoggerGuard;
 use slog_term;
 
 use crate::error::SkrdResult;
-use log::LogLevelFilter;
 
 pub struct LoggerGuard(GlobalLoggerGuard);
 
@@ -14,7 +13,10 @@ impl LoggerGuard {
             .use_custom_timestamp(timestamp_local_ymdhms)
             .build()
             .fuse();
-        let drain = slog_async::Async::new(drain).build().filter_level(level).fuse();
+        let drain = slog_async::Async::new(drain)
+            .build()
+            .filter_level(level)
+            .fuse();
 
         let logger = Logger::root(drain, o!(name => env!("CARGO_PKG_VERSION")));
 

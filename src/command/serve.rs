@@ -16,9 +16,9 @@ use structopt::StructOpt;
 
 use crate::{
     error::{SkrdError, SkrdResult},
-    util::{cache_forever, get_service_from_query_string, no_cache, sock_addr_v4},
+    util::{cache_forever, no_cache, sock_addr_v4},
 };
-use std::io::{Read, ErrorKind};
+use std::io::{ErrorKind, Read};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -238,14 +238,9 @@ fn git_receive_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> H
 }
 
 // http://localhost/crates.io-index/info/refs?service=git-xxxxxx-pack
-// TODO: # git command clone error
-//       > git clone http://localhost/crates.io-index
-//       Cloning into 'crates.io-index'...
-//       fatal: http://localhost/crates.io-index/info/refs not valid: is this a git repository?
-fn get_info_refs(
-    request: HttpRequest,
-    index_path: web::Data<PathBuf>,
-) -> std::io::Result<impl Responder> {
+// TODO: Now it only works when 'git-fetch-with-cli = true'
+//       refer to: https://doc.rust-lang.org/cargo/reference/config.html#configuration-keys
+fn get_info_refs(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
     //    match get_service_from_query_string(request.query_string()) {
     //        Some(service) => {
@@ -290,17 +285,23 @@ fn get_info_refs(
 
     let ref_path = index_path.get_ref().join(".git/info/refs");
     let mut body = String::new();
-    File::open(&ref_path).or_else(|_| {
-        let status = PsCommand::new("git").current_dir(index_path.get_ref())
-            .arg("update-server-info") // exit immediately after initial ref advertisement
-            .status()?;
+    File::open(&ref_path)
+        .or_else(|_| {
+            let status = PsCommand::new("git")
+                .current_dir(index_path.get_ref())
+                .arg("update-server-info") // exit immediately after initial ref advertisement
+                .status()?;
 
-        if status.success() {
-            File::open(&ref_path)
-        } else {
-            Err(std::io::Error::new(ErrorKind::Other, "git upload-server-info error"))
-        }
-    })?.read_to_string(&mut body)?;
+            if status.success() {
+                File::open(&ref_path)
+            } else {
+                Err(std::io::Error::new(
+                    ErrorKind::Other,
+                    "git upload-server-info error",
+                ))
+            }
+        })?
+        .read_to_string(&mut body)?;
     Ok(no_cache(
         HttpResponse::Ok()
             .content_type(mime::TEXT_PLAIN_UTF_8.to_string())

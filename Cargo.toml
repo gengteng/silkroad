@@ -3,7 +3,7 @@ name = "silkroad"
 version = "0.0.0"
 authors = ["GengTeng <me@gteng.org>"]
 edition = "2018"
-description = "Yet another crates.io mirroring tool."
+description = "A full-featured registry server for Cargo."
 license = "MIT"
 
 [dependencies]

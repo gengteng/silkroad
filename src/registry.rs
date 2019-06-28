@@ -68,6 +68,21 @@ impl Registry {
     }
 }
 
+///
+/// Registry Configuration read from `registry.toml`
+///
+/// .toml example:
+///
+/// ```toml
+///
+/// [meta]
+/// name = "silkroad"
+///
+/// [access]
+/// git-receive-pack = true
+/// git-upload-pack = false
+///
+/// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegistryConfig {
     meta: Meta,

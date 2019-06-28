@@ -260,12 +260,16 @@ fn return_404() -> HttpResponse {
 
 // TODO: git_upload_pack
 fn git_upload_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> HttpResponse {
-    HttpResponse::Ok().content_type("application/x-git-upload-pack-result").finish()
+    HttpResponse::Ok()
+        .content_type("application/x-git-upload-pack-result")
+        .finish()
 }
 
 // TODO: git_upload_pack
 fn git_receive_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> HttpResponse {
-    HttpResponse::Ok().content_type("application/x-git-receive-pack-result").finish()
+    HttpResponse::Ok()
+        .content_type("application/x-git-receive-pack-result")
+        .finish()
 }
 
 // http://localhost:9090/crates.io-index/info/refs?service=git-upload-pack
@@ -296,8 +300,9 @@ fn get_info_refs(
             }
 
             // access control
-            if (is_upload_pack && !registry.config().upload_on()) ||
-                (is_receive_pack && !registry.config().receive_on()){
+            if (is_upload_pack && !registry.config().upload_on())
+                || (is_receive_pack && !registry.config().receive_on())
+            {
                 return Ok(no_cache(
                     HttpResponse::Ok()
                         .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
@@ -339,13 +344,11 @@ fn get_info_refs(
                 }
             }
         }
-        _ => {
-            Ok(no_cache(
-                HttpResponse::Ok()
-                    .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-                    .body(update_and_get_refs(registry)?),
-            ))
-        }
+        _ => Ok(no_cache(
+            HttpResponse::Ok()
+                .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+                .body(update_and_get_refs(registry)?),
+        )),
     }
 }
 

@@ -1,3 +1,4 @@
+use actix_http::http::Version;
 use actix_web::{
     guard,
     http::header,
@@ -8,18 +9,22 @@ use rustls::{
     internal::pemfile::{certs, rsa_private_keys},
     NoClientAuth, ServerConfig,
 };
-use std::fmt::Debug;
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
-use std::{fs::File, io::BufReader, process::Command as PsCommand};
+use std::{
+    fmt::Debug,
+    fs::File,
+    io::BufReader,
+    io::{ErrorKind, Read},
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    process::Command as PsCommand,
+};
 use structopt::StructOpt;
 
 use crate::{
     error::{SkrdError, SkrdResult},
-    util::{cache_forever, no_cache, sock_addr_v4, get_service_from_query_string},
+    registry::Registry,
+    util::{cache_forever, get_service_from_query_string, no_cache, sock_addr_v4},
 };
-use std::io::{ErrorKind, Read};
-use actix_http::http::Version;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -34,22 +39,13 @@ pub struct Serve {
     addr: Option<SocketAddr>,
 
     #[structopt(
-        long = "index-path",
-        short = "i",
-        help = "Set the index path",
+        long = "registry-path",
+        short = "p",
+        help = "Set the registry path",
         value_name = "PATH",
         parse(try_from_str)
     )]
-    index_path: PathBuf,
-
-    #[structopt(
-        long = "crates-path",
-        short = "c",
-        help = "Set the crates path",
-        value_name = "PATH",
-        parse(try_from_str)
-    )]
-    crates_path: PathBuf,
+    registry_path: PathBuf,
 
     #[structopt(
         long = "ssl-files",
@@ -100,22 +96,34 @@ impl std::str::FromStr for CertAndKey {
 
 impl Serve {
     pub fn serve(&self) -> SkrdResult<()> {
-        let sys = actix_rt::System::new("silk_road");
+        let registry = Registry::open(&self.registry_path)?;
+        let config = registry.config();
 
-        let index_path = self.index_path.clone();
-        let crates_path = self.crates_path.clone();
+        info!("Registry '{}' loaded.", config.name());
+        info!(
+            "Access Control => git-receive-pack: {}, git-upload-pack: {}",
+            config.receive_on(),
+            config.upload_on()
+        );
+
+        let meta = registry.config().clone();
+
+        let sys = actix_rt::System::new("silk_road");
 
         let server = HttpServer::new(move || {
             App::new()
-                .data(index_path.clone())
+                .data(registry.clone())
                 .wrap(Logger::default())
                 .wrap(DefaultHeaders::new().header(
                     "server",
                     format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
                 ))
-                .service(api_scope())
-                .service(index_scope(&index_path))
-                .service(crates_scope(&crates_path))
+                .service(
+                    web::scope(&("/".to_owned() + registry.config().name()))
+                        .service(api_scope())
+                        .service(index_scope(registry.index_path()))
+                        .service(crates_scope(registry.crates_path())),
+                )
                 .default_service(
                     web::resource("")
                         .route(web::get().to(return_404))
@@ -128,26 +136,27 @@ impl Serve {
                 )
         });
 
-        match &self.keys {
+        let (proto, addr) = match &self.keys {
             Some(cert_key) => {
                 let addr = self.addr.unwrap_or_else(|| sock_addr_v4(127, 0, 0, 1, 443));
                 server.bind_rustls(addr, cert_key.config.clone())?.start();
-                info!(
-                    "Registry server started at https://{}:{}.",
-                    addr.ip(),
-                    addr.port()
-                );
+                ("https", addr)
             }
             None => {
                 let addr = self.addr.unwrap_or_else(|| sock_addr_v4(127, 0, 0, 1, 80));
                 server.bind(addr)?.start();
-                info!(
-                    "Registry server started at http://{}:{}.",
-                    addr.ip(),
-                    addr.port()
-                );
+                ("http", addr)
             }
-        }
+        };
+
+        info!("Registry server started successfully.");
+        info!(
+            "Users need to add this source to Cargo's configuration => {}://{}:{}/{}/index",
+            proto,
+            addr.ip(),
+            addr.port(),
+            meta.name()
+        );
         sys.run()?;
         Ok(())
     }
@@ -161,7 +170,7 @@ fn api_scope() -> actix_web::Scope {
 }
 
 fn index_scope<P: Into<PathBuf>>(index_path: P) -> actix_web::Scope {
-    web::scope("/crates.io-index")
+    web::scope("/index")
         .route("/git-upload-pack", web::post().to(git_upload_pack))
         .route("/git-receive-pack", web::post().to(git_receive_pack))
         .route("/info/refs", web::get().to(get_info_refs))
@@ -195,15 +204,33 @@ fn crates_scope<P: Into<PathBuf>>(crates_path: P) -> actix_web::Scope {
 }
 
 // /api/v1/crates/tokio/0.1.21/download
-fn redirect_download(path: web::Path<(String, String)>) -> HttpResponse {
+fn redirect_download(
+    registry: web::Data<Registry>,
+    path: web::Path<(String, String)>,
+) -> HttpResponse {
     let name = &path.0;
     let version = &path.1;
 
     let location = match name.len() {
-        1 => format!("/crates/{}/{}/{}-{}.crate", 1, name, name, version),
-        2 => format!("/crates/{}/{}/{}-{}.crate", 2, name, name, version),
+        1 => format!(
+            "/{}/crates/{}/{}/{}-{}.crate",
+            registry.config().name(),
+            1,
+            name,
+            name,
+            version
+        ),
+        2 => format!(
+            "/{}/crates/{}/{}/{}-{}.crate",
+            registry.config().name(),
+            2,
+            name,
+            name,
+            version
+        ),
         3 => format!(
-            "/crates/{}/{}/{}/{}-{}.crate",
+            "/{}/crates/{}/{}/{}/{}-{}.crate",
+            registry.config().name(),
             3,
             &name[..1],
             name,
@@ -211,7 +238,8 @@ fn redirect_download(path: web::Path<(String, String)>) -> HttpResponse {
             version
         ),
         _ => format!(
-            "/crates/{}/{}/{}/{}-{}.crate",
+            "/{}/crates/{}/{}/{}/{}-{}.crate",
+            registry.config().name(),
             &name[..2],
             &name[2..4],
             name,
@@ -231,129 +259,132 @@ fn return_404() -> HttpResponse {
 }
 
 // TODO: git_upload_pack
-fn git_upload_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> HttpResponse {
+fn git_upload_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> HttpResponse {
     HttpResponse::Forbidden().finish()
 }
 
 // TODO: git_upload_pack
-fn git_receive_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> HttpResponse {
+fn git_receive_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> HttpResponse {
     HttpResponse::Forbidden().finish()
 }
 
 // http://localhost:9090/crates.io-index/info/refs?service=git-upload-pack
 // TODO: Now it only works when 'git-fetch-with-cli = true'
 //       refer to: https://doc.rust-lang.org/cargo/reference/config.html#configuration-keys
-fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
-     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
-        match get_service_from_query_string(request.query_string()) {
-            Some(service) => {
-                // TODO: configurable permission
-                if service != "upload-pack" && service != "receive-pack" {
-                    return Ok(no_cache(if request.version() == Version::HTTP_11 {
+fn get_info_refs(
+    request: HttpRequest,
+    registry: web::Data<Registry>,
+) -> std::io::Result<impl Responder> {
+    // TODO: check Content-Type: application/x-git-xxxxx-pack-request
+    match get_service_from_query_string(request.query_string()) {
+        Some(service) => {
+            // TODO: configurable permission
+            if service != "upload-pack" && service != "receive-pack" {
+                return Ok(no_cache(
+                    if request.version() == Version::HTTP_11 {
                         HttpResponse::MethodNotAllowed()
                     } else {
                         HttpResponse::BadRequest()
-                    }.finish()));
-                }
+                    }
+                    .finish(),
+                ));
+            }
 
-                let result = PsCommand::new("git")
-                    .arg(service)
-                    .arg(index_path.get_ref())
-                    .arg("--stateless-rpc")
-                    .arg("--advertise-refs") // exit immediately after initial ref advertisement
-                    .output();
+            let result = PsCommand::new("git")
+                .arg(service)
+                .arg(registry.index_path())
+                .arg("--stateless-rpc")
+                .arg("--advertise-refs") // exit immediately after initial ref advertisement
+                .output();
 
-                match result {
-                    Ok(output) => {
-
-                        let head = format!("# service=git-{}\n", service);
-                        let head_len = format!("{:04x}", head.len() + 4);
-                        match String::from_utf8(output.stdout) {
-                            Ok(content) => {
-                                Ok(no_cache(
-                                    HttpResponse::Ok()
-                                        .content_type(format!("application/x-git-{}-advertisement", service))
-                                        .body(format!("{}{}0000{}", head_len, head, content)),
+            match result {
+                Ok(output) => {
+                    let head = format!("# service=git-{}\n", service);
+                    let head_len = format!("{:04x}", head.len() + 4);
+                    match String::from_utf8(output.stdout) {
+                        Ok(content) => Ok(no_cache(
+                            HttpResponse::Ok()
+                                .content_type(format!(
+                                    "application/x-git-{}-advertisement",
+                                    service
                                 ))
-                            }
-                            Err(e) => {
-                                error!("{} service error: {}", service, e);
-                                Ok(no_cache(HttpResponse::NotFound().finish()))
-                            }
+                                .body(format!("{}{}0000{}", head_len, head, content)),
+                        )),
+                        Err(e) => {
+                            error!("{} service error: {}", service, e);
+                            Ok(no_cache(HttpResponse::NotFound().finish()))
                         }
                     }
-                    Err(e) => {
-                        error!("{} service error: {}", service, e);
-                        Ok(no_cache(HttpResponse::NotFound().finish()))
-                    }
+                }
+                Err(e) => {
+                    error!("{} service error: {}", service, e);
+                    Ok(no_cache(HttpResponse::NotFound().finish()))
                 }
             }
-            _ => {
-                let ref_path = index_path.get_ref().join(".git/info/refs");
-                let mut body = String::new();
-                File::open(&ref_path)
-                    .or_else(|_| {
-                        let status = PsCommand::new("git")
-                            .current_dir(index_path.get_ref())
-                            .arg("update-server-info") // exit immediately after initial ref advertisement
-                            .status()?;
+        }
+        _ => {
+            let status = PsCommand::new("git")
+                .current_dir(registry.index_path())
+                .arg("update-server-info") // exit immediately after initial ref advertisement
+                .status()?;
 
-                        if status.success() {
-                            File::open(&ref_path)
-                        } else {
-                            Err(std::io::Error::new(
-                                ErrorKind::Other,
-                                "git upload-server-info error",
-                            ))
-                        }
-                    })?
-                    .read_to_string(&mut body)?;
+            if status.success() {
+                let ref_path = registry.index_git_path().join("info/refs");
+                let mut body = String::new();
+                let mut file = File::open(&ref_path)?;
+                file.read_to_string(&mut body)?;
                 Ok(no_cache(
                     HttpResponse::Ok()
                         .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
                         .body(body),
                 ))
+            } else {
+                Err(std::io::Error::new(
+                    ErrorKind::Other,
+                    "git upload-server-info error",
+                ))
             }
         }
+    }
 }
 
-fn get_head(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
-    send_text_file(index_path, "HEAD")
+fn get_head(registry: web::Data<Registry>) -> std::io::Result<impl Responder> {
+    send_text_file(registry.index_path().join("HEAD"))
 }
 
-fn get_alternates(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
-    send_text_file(index_path, "objects/info/alternates")
+fn get_alternates(registry: web::Data<Registry>) -> std::io::Result<impl Responder> {
+    send_text_file(registry.index_path().join("objects/info/alternates"))
 }
 
-fn get_http_alternates(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
-    send_text_file(index_path, "objects/info/http-alternates")
+fn get_http_alternates(registry: web::Data<Registry>) -> std::io::Result<impl Responder> {
+    send_text_file(registry.index_path().join("objects/info/http-alternates"))
 }
 
-fn get_info_packs(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
+fn get_info_packs(registry: web::Data<Registry>) -> std::io::Result<impl Responder> {
     send_file_with_custom_mime(
         "text/plain; charset=utf-8",
-        index_path,
-        "objects/info/packs",
+        registry.index_git_path().join("objects/info/packs"),
     )
     .map(cache_forever)
 }
 
 fn get_info_file(
-    index_path: web::Data<PathBuf>,
+    registry: web::Data<Registry>,
     path: web::Path<String>,
 ) -> std::io::Result<impl Responder> {
-    send_text_file(index_path, &format!("objects/info/{}", path))
+    send_text_file(registry.index_path().join(format!("objects/info/{}", path)))
 }
 
 // http://localhost/crates.io-index/objects/2f/d95367332005518f56b336634d85c099e2678a
 fn get_loose_object(
     path: web::Path<(String, String)>,
-    index_path: web::Data<PathBuf>,
+    registry: web::Data<Registry>,
 ) -> std::io::Result<impl Responder> {
     send_file_with_custom_mime(
         "application/x-git-loose-object",
-        index_path,
-        &format!("objects/{}/{}", path.0, path.1),
+        registry
+            .index_git_path()
+            .join(format!("objects/{}/{}", path.0, path.1)),
     )
     .map(cache_forever)
 }
@@ -362,8 +393,8 @@ fn get_loose_object(
 // http://localhost/crates.io-index/objects/pack/pack-63c9d4a58e9d4e29c97b1afdd26c1d39be6c7d10.pack
 fn get_pack_or_index_file(
     request: HttpRequest,
-    path: web::Path<String>,
-    index_path: web::Data<PathBuf>,
+    file: web::Path<String>,
+    registry: web::Data<Registry>,
 ) -> std::io::Result<impl Responder> {
     let url_path = request.path();
     let content_type = if url_path.ends_with(".idx") {
@@ -374,16 +405,17 @@ fn get_pack_or_index_file(
         return Err(std::io::ErrorKind::NotFound.into());
     };
 
-    send_file_with_custom_mime(content_type, index_path, &format!("objects/pack/{}", path))
-        .map(cache_forever)
+    send_file_with_custom_mime(
+        content_type,
+        registry
+            .index_git_path()
+            .join(format!("objects/pack/{}", file)),
+    )
+    .map(cache_forever)
 }
 
-fn send_text_file(
-    index_path: web::Data<PathBuf>,
-    filename: &str,
-) -> std::io::Result<impl Responder> {
-    let path = index_path.get_ref().join(".git").join(filename);
-    send_file(mime::TEXT_PLAIN, path).map(no_cache)
+fn send_text_file<P: AsRef<Path>>(filepath: P) -> std::io::Result<impl Responder> {
+    send_file(mime::TEXT_PLAIN, filepath).map(no_cache)
 }
 
 fn send_file<P: AsRef<Path>>(
@@ -396,14 +428,11 @@ fn send_file<P: AsRef<Path>>(
 }
 
 // say goodbye to strongly typed mime
-fn send_file_with_custom_mime(
+fn send_file_with_custom_mime<P: AsRef<Path>>(
     content_type: &str,
-    index_path: web::Data<PathBuf>,
-    filename: &str,
+    filepath: P,
 ) -> std::io::Result<impl Responder> {
-    Ok(
-        actix_files::NamedFile::open(index_path.get_ref().to_owned().join(".git").join(filename))?
-            .use_last_modified(true)
-            .with_header("Content-Type", content_type),
-    )
+    Ok(actix_files::NamedFile::open(filepath)?
+        .use_last_modified(true)
+        .with_header("Content-Type", content_type))
 }

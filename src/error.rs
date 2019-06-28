@@ -16,6 +16,10 @@ pub enum SkrdError {
     #[fail(display = "Log error: {}", _0)]
     Log(#[cause] log::SetLoggerError),
 
+    /// Serde error
+    #[fail(display = "Serde error: {}", _0)]
+    Serde(toml::de::Error),
+
     /// Custom error
     #[fail(display = "Custom error: {}", _0)]
     Custom(String),
@@ -36,6 +40,12 @@ impl From<rustls::TLSError> for SkrdError {
 impl From<log::SetLoggerError> for SkrdError {
     fn from(err: log::SetLoggerError) -> SkrdError {
         SkrdError::Log(err)
+    }
+}
+
+impl std::convert::From<toml::de::Error> for SkrdError {
+    fn from(err: toml::de::Error) -> SkrdError {
+        SkrdError::Serde(err)
     }
 }
 

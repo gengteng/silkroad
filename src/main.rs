@@ -16,6 +16,7 @@ mod logger;
 use crate::logger::LoggerGuard;
 use slog::Level;
 
+mod registry;
 mod util;
 
 fn main() -> SkrdResult<()> {

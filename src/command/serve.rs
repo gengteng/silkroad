@@ -16,7 +16,7 @@ use structopt::StructOpt;
 
 use crate::{
     error::{SkrdError, SkrdResult},
-    util::{cache_forever, no_cache, sock_addr_v4},
+    util::{cache_forever, no_cache, sock_addr_v4, get_service_from_query_string},
 };
 use std::io::{ErrorKind, Read};
 
@@ -229,84 +229,87 @@ fn return_404() -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
 
+// TODO: git_upload_pack
 fn git_upload_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
+// TODO: git_upload_pack
 fn git_receive_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
-// http://localhost/crates.io-index/info/refs?service=git-xxxxxx-pack
+// http://localhost:9090/crates.io-index/info/refs?service=git-upload-pack
 // TODO: Now it only works when 'git-fetch-with-cli = true'
 //       refer to: https://doc.rust-lang.org/cargo/reference/config.html#configuration-keys
-fn get_info_refs(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
-    // TODO: check Content-Type: application/x-git-xxxxx-pack-request
-    //    match get_service_from_query_string(request.query_string()) {
-    //        Some(service) => {
-    //            // TODO: configurable permission
-    //            if service != "upload-pack" && service != "receive-pack" {
-    //                return Ok(no_cache(HttpResponse::NotFound().finish()));
-    //            }
-    //
-    //            let result = PsCommand::new("git")
-    //                .arg(service)
-    //                .arg(index_path.get_ref())
-    //                .arg("--advertise-refs") // exit immediately after initial ref advertisement
-    //                .output();
-    //
-    //            match result {
-    //                Ok(mut output) => {
-    //                    let mut body = Vec::from(format!("001e# service={}\n", service));
-    //                    body.append(&mut output.stdout);
-    //
-    //                    Ok(no_cache(
-    //                        HttpResponse::Ok()
-    //                            .content_type(format!("application/x-{}-advertisement", service))
-    //                            .body(body),
-    //                    ))
-    //                }
-    //                Err(e) => {
-    //                    error!("{} service error: {}", service, e);
-    //                    Ok(no_cache(HttpResponse::NotFound().finish()))
-    //                }
-    //            }
-    //        }
-    //        _ => {
-    //            let mut body = String::new();
-    //            File::open(index_path.get_ref().join(".git/info/refs"))?.read_to_string(&mut body)?;
-    //            Ok(no_cache(
-    //                HttpResponse::Ok()
-    //                    .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-    //                    .body(body),
-    //            ))
-    //        }
-    //    }
+fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {
+     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
+        match get_service_from_query_string(request.query_string()) {
+            Some(service) => {
+                // TODO: configurable permission
+                if service != "upload-pack" && service != "receive-pack" {
+                    return Ok(no_cache(HttpResponse::NotFound().finish()));
+                }
 
-    let ref_path = index_path.get_ref().join(".git/info/refs");
-    let mut body = String::new();
-    File::open(&ref_path)
-        .or_else(|_| {
-            let status = PsCommand::new("git")
-                .current_dir(index_path.get_ref())
-                .arg("update-server-info") // exit immediately after initial ref advertisement
-                .status()?;
+                let result = PsCommand::new("git")
+                    .arg(service)
+                    .arg(index_path.get_ref())
+                    .arg("--stateless-rpc")
+                    .arg("--advertise-refs") // exit immediately after initial ref advertisement
+                    .output();
 
-            if status.success() {
+                match result {
+                    Ok(output) => {
+
+                        let head = format!("# service=git-{}\n", service);
+                        let head_len = format!("{:04x}", head.len() + 4);
+                        match String::from_utf8(output.stdout) {
+                            Ok(content) => {
+                                Ok(no_cache(
+                                    HttpResponse::Ok()
+                                        .content_type(format!("application/x-git-{}-advertisement", service))
+                                        .body(format!("{}{}0000{}", head_len, head, content)),
+                                ))
+                            }
+                            Err(e) => {
+                                error!("{} service error: {}", service, e);
+                                Ok(no_cache(HttpResponse::NotFound().finish()))
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("{} service error: {}", service, e);
+                        Ok(no_cache(HttpResponse::NotFound().finish()))
+                    }
+                }
+            }
+            _ => {
+                let ref_path = index_path.get_ref().join(".git/info/refs");
+                let mut body = String::new();
                 File::open(&ref_path)
-            } else {
-                Err(std::io::Error::new(
-                    ErrorKind::Other,
-                    "git upload-server-info error",
+                    .or_else(|_| {
+                        let status = PsCommand::new("git")
+                            .current_dir(index_path.get_ref())
+                            .arg("update-server-info") // exit immediately after initial ref advertisement
+                            .status()?;
+
+                        if status.success() {
+                            File::open(&ref_path)
+                        } else {
+                            Err(std::io::Error::new(
+                                ErrorKind::Other,
+                                "git upload-server-info error",
+                            ))
+                        }
+                    })?
+                    .read_to_string(&mut body)?;
+                Ok(no_cache(
+                    HttpResponse::Ok()
+                        .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+                        .body(body),
                 ))
             }
-        })?
-        .read_to_string(&mut body)?;
-    Ok(no_cache(
-        HttpResponse::Ok()
-            .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-            .body(body),
-    ))
+        }
 }
 
 fn get_head(index_path: web::Data<PathBuf>) -> std::io::Result<impl Responder> {

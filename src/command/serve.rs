@@ -19,6 +19,7 @@ use crate::{
     util::{cache_forever, no_cache, sock_addr_v4, get_service_from_query_string},
 };
 use std::io::{ErrorKind, Read};
+use actix_http::http::Version;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -231,12 +232,12 @@ fn return_404() -> HttpResponse {
 
 // TODO: git_upload_pack
 fn git_upload_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::Ok().finish()
+    HttpResponse::Forbidden().finish()
 }
 
 // TODO: git_upload_pack
 fn git_receive_pack(_request: HttpRequest, _index_path: web::Data<PathBuf>) -> HttpResponse {
-    HttpResponse::Ok().finish()
+    HttpResponse::Forbidden().finish()
 }
 
 // http://localhost:9090/crates.io-index/info/refs?service=git-upload-pack
@@ -248,7 +249,11 @@ fn get_info_refs(request: HttpRequest, index_path: web::Data<PathBuf>) -> std::i
             Some(service) => {
                 // TODO: configurable permission
                 if service != "upload-pack" && service != "receive-pack" {
-                    return Ok(no_cache(HttpResponse::NotFound().finish()));
+                    return Ok(no_cache(if request.version() == Version::HTTP_11 {
+                        HttpResponse::MethodNotAllowed()
+                    } else {
+                        HttpResponse::BadRequest()
+                    }.finish()));
                 }
 
                 let result = PsCommand::new("git")

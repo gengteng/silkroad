@@ -260,17 +260,19 @@ fn return_404() -> HttpResponse {
 
 // TODO: git_upload_pack
 fn git_upload_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> HttpResponse {
-    HttpResponse::Forbidden().finish()
+    HttpResponse::Ok().content_type("application/x-git-upload-pack-result").finish()
 }
 
 // TODO: git_upload_pack
 fn git_receive_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> HttpResponse {
-    HttpResponse::Forbidden().finish()
+    HttpResponse::Ok().content_type("application/x-git-receive-pack-result").finish()
 }
 
 // http://localhost:9090/crates.io-index/info/refs?service=git-upload-pack
-// TODO: Now it only works when 'git-fetch-with-cli = true'
-//       refer to: https://doc.rust-lang.org/cargo/reference/config.html#configuration-keys
+// TODO: Now it only works using The Dumb Protocol ('git-fetch-with-cli = true')
+//       refer to:  1. https://git-scm.com/book/en/v2/Git-Internals-Transfer-Protocols
+//                  2. https://doc.rust-lang.org/cargo/reference/config.html#configuration-keys
+//       The Smart Protocol is needed.
 fn get_info_refs(
     request: HttpRequest,
     registry: web::Data<Registry>,
@@ -278,8 +280,11 @@ fn get_info_refs(
     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
     match get_service_from_query_string(request.query_string()) {
         Some(service) => {
-            // TODO: configurable permission
-            if service != "upload-pack" && service != "receive-pack" {
+            let is_upload_pack = service == "upload-pack";
+            let is_receive_pack = service == "receive-pack";
+
+            // validate
+            if !is_upload_pack && !is_receive_pack {
                 return Ok(no_cache(
                     if request.version() == Version::HTTP_11 {
                         HttpResponse::MethodNotAllowed()
@@ -290,6 +295,18 @@ fn get_info_refs(
                 ));
             }
 
+            // access control
+            if (is_upload_pack && !registry.config().upload_on()) ||
+                (is_receive_pack && !registry.config().receive_on()){
+                return Ok(no_cache(
+                    HttpResponse::Ok()
+                        .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+                        .body(update_and_get_refs(registry)?),
+                ));
+            }
+
+            // execute the git command
+            // TODO: no dependency on `git`
             let result = PsCommand::new("git")
                 .arg(service)
                 .arg(registry.index_path())
@@ -323,28 +340,34 @@ fn get_info_refs(
             }
         }
         _ => {
-            let status = PsCommand::new("git")
-                .current_dir(registry.index_path())
-                .arg("update-server-info") // exit immediately after initial ref advertisement
-                .status()?;
-
-            if status.success() {
-                let ref_path = registry.index_git_path().join("info/refs");
-                let mut body = String::new();
-                let mut file = File::open(&ref_path)?;
-                file.read_to_string(&mut body)?;
-                Ok(no_cache(
-                    HttpResponse::Ok()
-                        .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-                        .body(body),
-                ))
-            } else {
-                Err(std::io::Error::new(
-                    ErrorKind::Other,
-                    "git upload-server-info error",
-                ))
-            }
+            Ok(no_cache(
+                HttpResponse::Ok()
+                    .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+                    .body(update_and_get_refs(registry)?),
+            ))
         }
+    }
+}
+
+fn update_and_get_refs(registry: web::Data<Registry>) -> std::io::Result<String> {
+    let status = PsCommand::new("git")
+        .current_dir(registry.index_path())
+        .arg("update-server-info") // exit immediately after initial ref advertisement
+        .status()?;
+
+    if status.success() {
+        let ref_path = registry.index_git_path().join("info/refs");
+        let mut body = String::new();
+        let mut file = File::open(&ref_path)?;
+
+        // TODO: optimize
+        file.read_to_string(&mut body)?;
+        Ok(body)
+    } else {
+        Err(std::io::Error::new(
+            ErrorKind::Other,
+            "git upload-server-info error",
+        ))
     }
 }
 

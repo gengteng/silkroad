@@ -25,8 +25,8 @@ fn main() -> SkrdResult<()> {
     let command = Command::from_args();
 
     match command {
-        Command::Update(_update) => Err(SkrdError::Custom(
-            "Subcommand update is unimplemented!".to_owned(),
+        Command::New(_new) => Err(SkrdError::Custom(
+            "Subcommand new is unimplemented!".to_owned(),
         )),
         Command::Serve(serve) => serve.serve(),
         Command::Pack(_pack) => Err(SkrdError::Custom(

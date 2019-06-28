@@ -1,17 +1,17 @@
 use structopt::StructOpt;
 
 pub mod execute;
+pub mod new;
 pub mod pack;
 pub mod serve;
-pub mod update;
 
 /// SilkRoad Command
 #[derive(Debug, StructOpt)]
 #[structopt(name = "skrd")]
 pub enum Command {
-    /// Update crate.io-index or crates or all
-    #[structopt(name = "update")]
-    Update(update::Update),
+    /// create a new registry directory
+    #[structopt(name = "new")]
+    New(new::New),
 
     /// Start a full featured registry
     #[structopt(name = "serve")]

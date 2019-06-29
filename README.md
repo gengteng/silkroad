@@ -10,24 +10,27 @@ A full-featured registry server for Cargo.
 
 ## RoadMap
 
-- [ ] Serve a index repository and crates
+- [ ] Serve a index repository and all crates
     - [x] HTTP server
         - [x] The Dumb Protocol
         - [x] The Smart Protocol(except git-receive-pack)
     - [ ] Git server
-    - [ ] No dependency on the `git` command
-- [ ] Periodic update
-    - [ ] Downloader
+    - [ ] `git` related
+        - [ ] Command output cache
+        - [ ] No dependency on `git`
+    - [ ] Registry Web API (Login, Publish and so on)
+        - [ ] Login
+        - [ ] Publish
+        - [ ] Yank & Unyank
+        - [ ] Owners
+- [ ] Mirroring
+    - [ ] Index clone and sync
+    - [ ] Crates download
     - [ ] Timer
 - [ ] Server Migration
     - [ ] Package
-    - [ ] Unpack
+    - [ ] Unpackage
 - [ ] Execute a toml file as a command
-- [ ] Registry Web API (Login, Publish and so on)
-    - [ ] Login
-    - [ ] Publish
-    - [ ] Yank & Unyank
-    - [ ] Owners
 - [ ] Homepage (An Angular based SPA?)
 
 ## Dependencies

@@ -53,7 +53,7 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
     let base_url = registry.base_url();
     let url_config = UrlConfig {
         dl: format!("{}{}", base_url, "/api/v1/crates"),
-        api: format!("{}", base_url),
+        api: base_url
     };
 
     let repo = git2::Repository::open(registry.index_path())?;
@@ -77,7 +77,7 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
     let bytes = content.as_bytes();
 
     file.seek(SeekFrom::Start(0))?;
-    file.write(bytes)?;
+    file.write_all(bytes)?;
     file.set_len(bytes.len() as u64)?;
     drop(file);
 
@@ -87,7 +87,7 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
         .and_then(|reference| {
             reference
                 .target()
-                .ok_or(git2::Error::from_str("no reference found"))
+                .ok_or_else(|| git2::Error::from_str("no reference found"))
         })
         .and_then(|target| repo.find_commit(target));
 

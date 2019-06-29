@@ -76,7 +76,7 @@ impl Registry {
         let config = self.config();
         format!(
             "{}://{}{}/{}",
-            if config.ssl() { "http" } else { "http" },
+            if config.ssl() { "https" } else { "http" },
             config.domain(),
             if is_default_port(config.port(), config.ssl()) {
                 "".to_owned()

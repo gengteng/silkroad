@@ -45,14 +45,14 @@ A full-featured registry server for Cargo.
     * [Registries - The Cargo Book](https://doc.rust-lang.org/cargo/reference/registries.html)
     * 
 * Projects
-    * [rust-lang/crates.io-index](https://github.com/rust-lang/crates.io-index)
-    * [rust-lang/crates.io](https://github.com/rust-lang/crates.io)
-    * [rust-lang/cargo](https://github.com/rust-lang/cargo)
-    * [AaronO/go-git-http](https://github.com/AaronO/go-git-http)
-    * [tennix/crates-mirror](https://github.com/tennix/crates-mirror)
-    * [rustcc/lernaean](https://github.com/rustcc/lernaean)
-    * [mcorbin/meuse](https://github.com/mcorbin/meuse)
-    * [samrat/rug](https://github.com/samrat/rug)
+    * [rust-lang/crates.io-index](https://github.com/rust-lang/crates.io-index) Crates.io index.
+    * [rust-lang/crates.io](https://github.com/rust-lang/crates.io) Source code for crates.io.
+    * [rust-lang/cargo](https://github.com/rust-lang/cargo) The Rust package manager.
+    * [AaronO/go-git-http](https://github.com/AaronO/go-git-http) A Smart Git Http server library in Go (golang).
+    * [samrat/rug](https://github.com/samrat/rug) A implementation of Jit.
+    * [tennix/crates-mirror](https://github.com/tennix/crates-mirror) Download all crates on Rust official crates site and keep sync with it.
+    * [rustcc/lernaean](https://github.com/rustcc/lernaean) 一个面向中文社区的crates.io镜像.
+    * [mcorbin/meuse](https://github.com/mcorbin/meuse) A Rust private registry written in Clojure.  
     
 ## License
 

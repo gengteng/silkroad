@@ -1,5 +1,10 @@
-use crate::error::SkrdResult;
+use crate::error::{SkrdError, SkrdResult};
+use rustls::internal::pemfile::{certs, rsa_private_keys};
+use rustls::{NoClientAuth, ServerConfig};
 use serde_derive::{Deserialize, Serialize};
+use std::io::BufReader;
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
 
 /// Registry
@@ -32,7 +37,7 @@ impl Registry {
     pub fn open<P: Into<PathBuf>>(root: P) -> SkrdResult<Self> {
         let root = root.into();
 
-        let config = RegistryConfig::from(root.join(Registry::TOML_FILE))?;
+        let config = RegistryConfig::open(root.join(Registry::TOML_FILE))?;
 
         Ok(Registry {
             // join before `config` moved
@@ -68,6 +73,14 @@ impl Registry {
     }
 }
 
+impl FromStr for Registry {
+    type Err = SkrdError;
+
+    fn from_str(s: &str) -> SkrdResult<Self> {
+        Registry::open(s)
+    }
+}
+
 ///
 /// Registry Configuration read from `registry.toml`
 ///
@@ -76,7 +89,15 @@ impl Registry {
 /// ```toml
 ///
 /// [meta]
-/// name = "silkroad"
+/// name = "goe2"
+///
+/// [http]
+/// domain = "goe2.net"
+/// ip = "127.0.0.1"
+/// port = 443
+/// ssl = true
+/// cert = "path/to/cert.pem"
+/// key = "path/to/key.pem"
 ///
 /// [access]
 /// git-receive-pack = true
@@ -86,11 +107,12 @@ impl Registry {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegistryConfig {
     meta: Meta,
-    access: Access,
+    http: HttpConfig,
+    access: AccessControl,
 }
 
 impl RegistryConfig {
-    fn from<P: Into<PathBuf>>(path: P) -> SkrdResult<Self> {
+    fn open<P: Into<PathBuf>>(path: P) -> SkrdResult<Self> {
         let mut file = File::open(path.into())?;
         let mut content = String::with_capacity(file.metadata()?.len() as usize);
         file.read_to_string(&mut content)?;
@@ -102,12 +124,42 @@ impl RegistryConfig {
         &self.meta.name
     }
 
+    pub fn domain(&self) -> &str {
+        &self.http.domain
+    }
+
+    pub fn ip(&self) -> IpAddr {
+        self.http.ip
+    }
+
+    pub fn port(&self) -> u16 {
+        self.http.port
+    }
+
+    pub fn ssl(&self) -> bool {
+        self.http.ssl
+    }
+
     pub fn receive_on(&self) -> bool {
         self.access.receive
     }
 
     pub fn upload_on(&self) -> bool {
         self.access.upload
+    }
+
+    pub fn build_ssl_config(&self) -> SkrdResult<ServerConfig> {
+        let mut config = ServerConfig::new(NoClientAuth::new());
+
+        let cert_file = &mut BufReader::new(File::open(&self.http.cert)?);
+        let key_file = &mut BufReader::new(File::open(&self.http.key)?);
+        let cert_chain = certs(cert_file)
+            .map_err(|_| rustls::TLSError::General("Extract certificates error".to_owned()))?;
+        let mut keys = rsa_private_keys(key_file)
+            .map_err(|_| rustls::TLSError::General("Extract RSA private keys error".to_owned()))?;
+        config.set_single_cert(cert_chain, keys.remove(0))?;
+
+        Ok(config)
     }
 }
 
@@ -117,7 +169,17 @@ struct Meta {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Access {
+struct HttpConfig {
+    domain: String,
+    ip: IpAddr,
+    port: u16,
+    ssl: bool,
+    cert: PathBuf,
+    key: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct AccessControl {
     #[serde(rename = "git-receive-pack")]
     receive: bool,
     #[serde(rename = "git-upload-pack")]

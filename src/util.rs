@@ -1,13 +1,13 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
 use actix_http::http::header::HttpDate;
 use actix_web::Responder;
 use std::time::{Duration, SystemTime};
 
-/// Construct an ipv4 socket object
-///
-pub fn sock_addr_v4(a: u8, b: u8, c: u8, d: u8, port: u16) -> SocketAddr {
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(a, b, c, d)), port)
+pub fn is_default_port(port: u16, ssl: bool) -> bool {
+    if ssl {
+        port == 443u16
+    } else {
+        port == 80u16
+    }
 }
 
 /// Get the service name from url query string

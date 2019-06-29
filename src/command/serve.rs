@@ -5,14 +5,8 @@ use actix_web::{
     middleware::{DefaultHeaders, Logger},
     web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
-use rustls::{
-    internal::pemfile::{certs, rsa_private_keys},
-    NoClientAuth, ServerConfig,
-};
 use std::{
-    fmt::Debug,
     fs::File,
-    io::BufReader,
     io::{ErrorKind, Read},
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -21,23 +15,14 @@ use std::{
 use structopt::StructOpt;
 
 use crate::{
-    error::{SkrdError, SkrdResult},
+    error::SkrdResult,
     registry::Registry,
-    util::{cache_forever, get_service_from_query_string, no_cache, sock_addr_v4},
+    util::{cache_forever, get_service_from_query_string, is_default_port, no_cache},
 };
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
 pub struct Serve {
-    #[structopt(
-        long,
-        short = "a",
-        help = "Set the listening address",
-        value_name = "IP:PORT",
-        parse(try_from_str)
-    )]
-    addr: Option<SocketAddr>,
-
     #[structopt(
         long = "registry-path",
         short = "p",
@@ -45,59 +30,12 @@ pub struct Serve {
         value_name = "PATH",
         parse(try_from_str)
     )]
-    registry_path: PathBuf,
-
-    #[structopt(
-        long = "ssl-files",
-        short = "s",
-        help = "Set the certificate path and the RSA private key path",
-        value_name = "CERTPATH,KEYPATH",
-        parse(try_from_str)
-    )]
-    keys: Option<CertAndKey>,
-}
-
-struct CertAndKey {
-    raw: String,
-    config: ServerConfig,
-}
-
-impl Debug for CertAndKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "CertAndKey {{ {:?} }}", self.raw)
-    }
-}
-
-impl std::str::FromStr for CertAndKey {
-    type Err = SkrdError;
-
-    fn from_str(s: &str) -> SkrdResult<Self> {
-        let raw = s.to_owned();
-        match s.find(',') {
-            Some(n) => {
-                let mut config = ServerConfig::new(NoClientAuth::new());
-
-                let cert_file = &mut BufReader::new(File::open(&s[..n])?);
-                let key_file = &mut BufReader::new(File::open(&s[n + 1..])?);
-                let cert_chain = certs(cert_file).map_err(|_| {
-                    rustls::TLSError::General("Extract certificates error".to_owned())
-                })?;
-                let mut keys = rsa_private_keys(key_file).map_err(|_| {
-                    rustls::TLSError::General("Extract RSA private keys error".to_owned())
-                })?;
-                config.set_single_cert(cert_chain, keys.remove(0))?;
-
-                Ok(CertAndKey { raw, config })
-            }
-            None => Err(SkrdError::Custom("Ssl-files format error".to_owned())),
-        }
-    }
+    registry: Registry,
 }
 
 impl Serve {
     pub fn serve(&self) -> SkrdResult<()> {
-        let registry = Registry::open(&self.registry_path)?;
-        let config = registry.config();
+        let config = self.registry.config();
 
         info!("Registry '{}' loaded.", config.name());
         info!(
@@ -106,23 +44,23 @@ impl Serve {
             config.upload_on()
         );
 
-        let meta = registry.config().clone();
-
         let sys = actix_rt::System::new("silk_road");
+
+        let reg = self.registry.clone();
 
         let server = HttpServer::new(move || {
             App::new()
-                .data(registry.clone())
+                .data(reg.clone())
                 .wrap(Logger::default())
                 .wrap(DefaultHeaders::new().header(
                     "server",
                     format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
                 ))
                 .service(
-                    web::scope(&("/".to_owned() + registry.config().name()))
+                    web::scope(&("/".to_owned() + reg.config().name()))
                         .service(api_scope())
-                        .service(index_scope(registry.index_path()))
-                        .service(crates_scope(registry.crates_path())),
+                        .service(index_scope(reg.index_path()))
+                        .service(crates_scope(reg.crates_path())),
                 )
                 .default_service(
                     web::resource("")
@@ -136,26 +74,31 @@ impl Serve {
                 )
         });
 
-        let (proto, addr) = match &self.keys {
-            Some(cert_key) => {
-                let addr = self.addr.unwrap_or_else(|| sock_addr_v4(127, 0, 0, 1, 443));
-                server.bind_rustls(addr, cert_key.config.clone())?.start();
-                ("https", addr)
-            }
-            None => {
-                let addr = self.addr.unwrap_or_else(|| sock_addr_v4(127, 0, 0, 1, 80));
-                server.bind(addr)?.start();
-                ("http", addr)
-            }
+        let addr = SocketAddr::new(config.ip(), config.port());
+
+        let proto = if config.ssl() {
+            server
+                .bind_rustls(addr, config.build_ssl_config()?)?
+                .start();
+            "http"
+        } else {
+            server.bind(addr)?.start();
+            "http"
         };
 
-        info!("Registry server started successfully.");
+        let colon_port = if is_default_port(addr.port(), config.ssl()) {
+            "".to_owned()
+        } else {
+            format!(":{}", addr.port())
+        };
+
+        info!("Registry server started.");
         info!(
-            "Users need to add this source to Cargo's configuration => {}://{}:{}/{}/index",
+            "Users need to add this source to Cargo's configuration => {}://{}{}/{}/index",
             proto,
-            addr.ip(),
-            addr.port(),
-            meta.name()
+            config.domain(),
+            colon_port,
+            config.name()
         );
         sys.run()?;
         Ok(())

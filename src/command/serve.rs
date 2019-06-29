@@ -5,6 +5,7 @@ use actix_web::{
     middleware::{DefaultHeaders, Logger},
     web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
+use futures::{Future, Stream};
 use std::{
     fs::File,
     io::{ErrorKind, Read},
@@ -14,21 +15,22 @@ use std::{
 };
 use structopt::StructOpt;
 
+use crate::error::SkrdError;
 use crate::util::write_config_json;
 use crate::{
     error::SkrdResult,
     registry::Registry,
     util::{cache_forever, get_service_from_query_string, no_cache},
 };
+use mime::Mime;
+use std::str::FromStr;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
 pub struct Serve {
     #[structopt(
-        long = "registry-path",
-        short = "p",
         help = "Set the registry path",
-        value_name = "PATH",
+        value_name = "REGISTRY PATH",
         parse(try_from_str)
     )]
     registry: Registry,
@@ -37,7 +39,6 @@ pub struct Serve {
 impl Serve {
     pub fn serve(&self) -> SkrdResult<()> {
         let config = self.registry.config();
-
         info!("Registry '{}' loaded.", config.name());
         info!(
             "Access Control => git-receive-pack: {}, git-upload-pack: {}",
@@ -116,7 +117,7 @@ fn api_scope() -> actix_web::Scope {
 
 fn index_scope<P: Into<PathBuf>>(index_path: P) -> actix_web::Scope {
     web::scope("/index")
-        .route("/git-upload-pack", web::post().to(git_upload_pack))
+        .route("/git-upload-pack", web::post().to_async(git_upload_pack))
         .route("/git-receive-pack", web::post().to(git_receive_pack))
         .route("/info/refs", web::get().to(get_info_refs))
         .route("/HEAD", web::get().to(get_head))
@@ -204,17 +205,33 @@ fn return_404() -> HttpResponse {
 }
 
 // TODO: git_upload_pack
-fn git_upload_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> HttpResponse {
-    HttpResponse::Ok()
-        .content_type("application/x-git-upload-pack-result")
-        .finish()
+fn git_upload_pack(
+    _request: HttpRequest,
+    body: web::Payload,
+    _registry: web::Data<Registry>,
+) -> impl Future<Item = HttpResponse, Error = SkrdError> {
+    body.map_err(SkrdError::from)
+        .fold(web::BytesMut::new(), move |mut body, chunk| {
+            body.extend_from_slice(&chunk);
+            Ok::<_, SkrdError>(body)
+        })
+        .and_then(|body| {
+            println!("Body {:?}!", body);
+            Ok(HttpResponse::Ok()
+                .content_type("application/x-git-upload-pack-result")
+                .finish())
+        })
 }
 
 // TODO: git_upload_pack
-fn git_receive_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> HttpResponse {
-    HttpResponse::Ok()
+fn git_receive_pack(
+    request: HttpRequest,
+    _registry: web::Data<Registry>,
+) -> SkrdResult<HttpResponse> {
+    info!("{:?}", request);
+    Ok(HttpResponse::Ok()
         .content_type("application/x-git-receive-pack-result")
-        .finish()
+        .finish())
 }
 
 // http://localhost:9090/crates.io-index/info/refs?service=git-upload-pack
@@ -225,7 +242,7 @@ fn git_receive_pack(_request: HttpRequest, _registry: web::Data<Registry>) -> Ht
 fn get_info_refs(
     request: HttpRequest,
     registry: web::Data<Registry>,
-) -> std::io::Result<impl Responder> {
+) -> SkrdResult<impl Responder> {
     // TODO: check Content-Type: application/x-git-xxxxx-pack-request
     match get_service_from_query_string(request.query_string()) {
         Some(service) => {
@@ -297,7 +314,7 @@ fn get_info_refs(
     }
 }
 
-fn update_and_get_refs(registry: web::Data<Registry>) -> std::io::Result<String> {
+fn update_and_get_refs(registry: web::Data<Registry>) -> SkrdResult<String> {
     let status = PsCommand::new("git")
         .current_dir(registry.index_path())
         .arg("update-server-info") // exit immediately after initial ref advertisement
@@ -312,26 +329,23 @@ fn update_and_get_refs(registry: web::Data<Registry>) -> std::io::Result<String>
         file.read_to_string(&mut body)?;
         Ok(body)
     } else {
-        Err(std::io::Error::new(
-            ErrorKind::Other,
-            "git upload-server-info error",
-        ))
+        Err(SkrdError::StaticCustom("git upload-server-info error"))
     }
 }
 
-fn get_head(registry: web::Data<Registry>) -> std::io::Result<impl Responder> {
+fn get_head(registry: web::Data<Registry>) -> SkrdResult<impl Responder> {
     send_text_file(registry.index_path().join("HEAD"))
 }
 
-fn get_alternates(registry: web::Data<Registry>) -> std::io::Result<impl Responder> {
+fn get_alternates(registry: web::Data<Registry>) -> SkrdResult<impl Responder> {
     send_text_file(registry.index_path().join("objects/info/alternates"))
 }
 
-fn get_http_alternates(registry: web::Data<Registry>) -> std::io::Result<impl Responder> {
+fn get_http_alternates(registry: web::Data<Registry>) -> SkrdResult<impl Responder> {
     send_text_file(registry.index_path().join("objects/info/http-alternates"))
 }
 
-fn get_info_packs(registry: web::Data<Registry>) -> std::io::Result<impl Responder> {
+fn get_info_packs(registry: web::Data<Registry>) -> SkrdResult<impl Responder> {
     send_file_with_custom_mime(
         "text/plain; charset=utf-8",
         registry.index_git_path().join("objects/info/packs"),
@@ -342,7 +356,7 @@ fn get_info_packs(registry: web::Data<Registry>) -> std::io::Result<impl Respond
 fn get_info_file(
     registry: web::Data<Registry>,
     path: web::Path<String>,
-) -> std::io::Result<impl Responder> {
+) -> SkrdResult<impl Responder> {
     send_text_file(registry.index_path().join(format!("objects/info/{}", path)))
 }
 
@@ -350,7 +364,7 @@ fn get_info_file(
 fn get_loose_object(
     path: web::Path<(String, String)>,
     registry: web::Data<Registry>,
-) -> std::io::Result<impl Responder> {
+) -> SkrdResult<impl Responder> {
     send_file_with_custom_mime(
         "application/x-git-loose-object",
         registry
@@ -366,14 +380,14 @@ fn get_pack_or_index_file(
     request: HttpRequest,
     file: web::Path<String>,
     registry: web::Data<Registry>,
-) -> std::io::Result<impl Responder> {
+) -> SkrdResult<impl Responder> {
     let url_path = request.path();
     let content_type = if url_path.ends_with(".idx") {
         "application/x-git-packed-objects-toc"
     } else if url_path.ends_with(".pack") {
         "application/x-git-packed-objects"
     } else {
-        return Err(std::io::ErrorKind::NotFound.into());
+        return Err(SkrdError::StaticCustom("error content type"));
     };
 
     send_file_with_custom_mime(
@@ -385,14 +399,11 @@ fn get_pack_or_index_file(
     .map(cache_forever)
 }
 
-fn send_text_file<P: AsRef<Path>>(filepath: P) -> std::io::Result<impl Responder> {
+fn send_text_file<P: AsRef<Path>>(filepath: P) -> SkrdResult<impl Responder> {
     send_file(mime::TEXT_PLAIN, filepath).map(no_cache)
 }
 
-fn send_file<P: AsRef<Path>>(
-    content_type: mime::Mime,
-    filepath: P,
-) -> std::io::Result<impl Responder> {
+fn send_file<P: AsRef<Path>>(content_type: mime::Mime, filepath: P) -> SkrdResult<impl Responder> {
     Ok(actix_files::NamedFile::open(filepath)?
         .set_content_type(content_type)
         .use_last_modified(true))
@@ -402,8 +413,10 @@ fn send_file<P: AsRef<Path>>(
 fn send_file_with_custom_mime<P: AsRef<Path>>(
     content_type: &str,
     filepath: P,
-) -> std::io::Result<impl Responder> {
+) -> SkrdResult<impl Responder> {
+    let content_type =
+        Mime::from_str(content_type).map_err(|e| std::io::Error::new(ErrorKind::Other, e))?;
     Ok(actix_files::NamedFile::open(filepath)?
-        .use_last_modified(true)
-        .with_header("Content-Type", content_type))
+        .set_content_type(content_type)
+        .use_last_modified(true))
 }

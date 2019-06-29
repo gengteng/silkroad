@@ -11,6 +11,7 @@ actix-web =  { version = "1.0.2", features = ["rust-tls"] }
 actix-files = "0.1.2"
 actix-rt = "0.2"
 actix-http = "0.2.4"
+futures = "0.1.27"
 rustls = "0.15"
 mime = "0.3.13"
 

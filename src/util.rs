@@ -53,7 +53,7 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
     let base_url = registry.base_url();
     let url_config = UrlConfig {
         dl: format!("{}{}", base_url, "/api/v1/crates"),
-        api: base_url
+        api: base_url,
     };
 
     let repo = git2::Repository::open(registry.index_path())?;

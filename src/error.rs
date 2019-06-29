@@ -1,5 +1,6 @@
+use actix_http::ResponseError;
 use failure::Fail;
-use rustls;
+use std::convert::From;
 
 /// Error for SilkRoad
 #[derive(Fail, Debug)]
@@ -24,6 +25,14 @@ pub enum SkrdError {
     #[fail(display = "Toml error: {}", _0)]
     Json(serde_json::Error),
 
+    /// Mime error
+    #[fail(display = "Mime error: {}", _0)]
+    Mime(mime::FromStrError),
+
+    /// Payload error
+    #[fail(display = "Payload error: {}", _0)]
+    Payload(actix_http::error::PayloadError),
+
     /// Git error
     #[fail(display = "Serde error: {}", _0)]
     Git(git2::Error),
@@ -31,7 +40,13 @@ pub enum SkrdError {
     /// Custom error
     #[fail(display = "Custom error: {}", _0)]
     Custom(String),
+
+    /// Static custom error
+    #[fail(display = "Custom error: {}", _0)]
+    StaticCustom(&'static str),
 }
+
+impl ResponseError for SkrdError {}
 
 impl From<std::io::Error> for SkrdError {
     fn from(err: std::io::Error) -> SkrdError {
@@ -51,21 +66,33 @@ impl From<log::SetLoggerError> for SkrdError {
     }
 }
 
-impl std::convert::From<toml::de::Error> for SkrdError {
+impl From<toml::de::Error> for SkrdError {
     fn from(err: toml::de::Error) -> SkrdError {
         SkrdError::Toml(err)
     }
 }
 
-impl std::convert::From<git2::Error> for SkrdError {
+impl From<git2::Error> for SkrdError {
     fn from(err: git2::Error) -> Self {
         SkrdError::Git(err)
     }
 }
 
-impl std::convert::From<serde_json::Error> for SkrdError {
+impl From<serde_json::Error> for SkrdError {
     fn from(err: serde_json::Error) -> Self {
         SkrdError::Json(err)
+    }
+}
+
+impl From<mime::FromStrError> for SkrdError {
+    fn from(err: mime::FromStrError) -> Self {
+        SkrdError::Mime(err)
+    }
+}
+
+impl From<actix_http::error::PayloadError> for SkrdError {
+    fn from(err: actix_http::error::PayloadError) -> Self {
+        SkrdError::Payload(err)
     }
 }
 

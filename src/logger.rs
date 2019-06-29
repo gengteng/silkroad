@@ -1,6 +1,5 @@
 use slog::{Drain, Level, Logger};
 use slog_scope::GlobalLoggerGuard;
-use slog_term;
 
 use crate::error::SkrdResult;
 
@@ -23,7 +22,7 @@ impl LoggerGuard {
         let guard = slog_scope::set_global_logger(logger);
         slog_stdlog::init()?;
 
-        info!("Logger initialized.");
+        debug!("Logger initialized.");
 
         Ok(LoggerGuard(guard))
     }
@@ -31,7 +30,7 @@ impl LoggerGuard {
 
 impl Drop for LoggerGuard {
     fn drop(&mut self) {
-        info!("Logger uninitialized.");
+        debug!("Logger uninitialized.");
     }
 }
 

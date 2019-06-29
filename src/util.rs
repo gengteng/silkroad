@@ -2,12 +2,12 @@ use crate::error::SkrdResult;
 use crate::registry::{Registry, UrlConfig};
 use actix_http::http::header::HttpDate;
 use actix_web::Responder;
+use git2::build::CheckoutBuilder;
 use git2::Oid;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
-use git2::build::CheckoutBuilder;
 
 /// Get the service name from url query string
 ///
@@ -53,7 +53,7 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
     let base_url = registry.base_url();
     let url_config = UrlConfig {
         dl: format!("{}{}", base_url, "/api/v1/crates"),
-        api: format!("{}", base_url)
+        api: format!("{}", base_url),
     };
 
     let repo = git2::Repository::open(registry.index_path())?;

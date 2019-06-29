@@ -87,7 +87,10 @@ impl Serve {
 
         write_config_json(&self.registry).and_then(|o| {
             if let Some(oid) = o {
-                info!("Custom url(dl and api) has been written to config.json.(commid id: {})", oid);
+                info!(
+                    "Custom url(dl and api) has been written to config.json.(commid id: {})",
+                    oid
+                );
             }
 
             Ok(o)

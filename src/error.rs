@@ -34,8 +34,12 @@ pub enum SkrdError {
     Payload(actix_http::error::PayloadError),
 
     /// Git error
-    #[fail(display = "Serde error: {}", _0)]
+    #[fail(display = "Git error: {}", _0)]
     Git(git2::Error),
+
+    /// FromUtf8 error
+    #[fail(display = "FromUtf8 error: {}", _0)]
+    FromUtf8(std::string::FromUtf8Error),
 
     /// Custom error
     #[fail(display = "Custom error: {}", _0)]
@@ -93,6 +97,12 @@ impl From<mime::FromStrError> for SkrdError {
 impl From<actix_http::error::PayloadError> for SkrdError {
     fn from(err: actix_http::error::PayloadError) -> Self {
         SkrdError::Payload(err)
+    }
+}
+
+impl From<std::string::FromUtf8Error> for SkrdError {
+    fn from(err: std::string::FromUtf8Error) -> Self {
+        SkrdError::FromUtf8(err)
     }
 }
 

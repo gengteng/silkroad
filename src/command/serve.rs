@@ -1,11 +1,9 @@
-use actix_http::http::Version;
 use actix_web::{
     guard,
     http::header,
     middleware::{DefaultHeaders, Logger},
     web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
-use futures::{Future, Stream};
 use std::{
     fs::File,
     io::{ErrorKind, Read},
@@ -22,7 +20,10 @@ use crate::{
     registry::Registry,
     util::{cache_forever, get_service_from_query_string, no_cache},
 };
+use actix_http::httpmessage::HttpMessage;
 use mime::Mime;
+use std::io::Write;
+use std::process::Stdio;
 use std::str::FromStr;
 
 #[derive(Debug, StructOpt)]
@@ -204,26 +205,43 @@ fn return_404() -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
 
-// TODO: git_upload_pack
+// TODO: optimize => Response time is around 10 seconds
 fn git_upload_pack(
-    _request: HttpRequest,
-    body: web::Payload,
-    _registry: web::Data<Registry>,
-) -> impl Future<Item = HttpResponse, Error = SkrdError> {
-    body.map_err(SkrdError::from)
-        .fold(web::BytesMut::new(), move |mut body, chunk| {
-            body.extend_from_slice(&chunk);
-            Ok::<_, SkrdError>(body)
-        })
-        .and_then(|body| {
-            println!("Body {:?}!", body);
-            Ok(HttpResponse::Ok()
-                .content_type("application/x-git-upload-pack-result")
-                .finish())
-        })
+    request: HttpRequest,
+    body: web::Bytes,
+    registry: web::Data<Registry>,
+) -> SkrdResult<HttpResponse> {
+    if request.content_type() != "application/x-git-upload-pack-request" {
+        return Ok(HttpResponse::Forbidden().finish());
+    }
+
+    if !registry.config().upload_on() {
+        return Ok(HttpResponse::Forbidden().finish());
+    }
+
+    let mut child = PsCommand::new("git")
+        .arg("upload-pack")
+        .arg(registry.index_path())
+        .arg("--stateless-rpc")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| SkrdError::StaticCustom("get command line stdin error"))?;
+        stdin.write_all(&body)?;
+    }
+
+    let output = child.wait_with_output()?;
+    Ok(HttpResponse::Ok()
+        .content_type("application/x-git-upload-pack-result")
+        .body(output.stdout))
 }
 
-// TODO: git_upload_pack
+// TODO: git_receive_pack
 fn git_receive_pack(
     request: HttpRequest,
     _registry: web::Data<Registry>,
@@ -235,34 +253,18 @@ fn git_receive_pack(
 }
 
 // http://localhost:9090/crates.io-index/info/refs?service=git-upload-pack
-// TODO: Now it only works using The Dumb Protocol ('git-fetch-with-cli = true')
-//       refer to:  1. https://git-scm.com/book/en/v2/Git-Internals-Transfer-Protocols
-//                  2. https://doc.rust-lang.org/cargo/reference/config.html#configuration-keys
-//       The Smart Protocol is needed.
 fn get_info_refs(
     request: HttpRequest,
     registry: web::Data<Registry>,
 ) -> SkrdResult<impl Responder> {
-    // TODO: check Content-Type: application/x-git-xxxxx-pack-request
     match get_service_from_query_string(request.query_string()) {
         Some(service) => {
             let is_upload_pack = service == "upload-pack";
             let is_receive_pack = service == "receive-pack";
 
-            // validate
-            if !is_upload_pack && !is_receive_pack {
-                return Ok(no_cache(
-                    if request.version() == Version::HTTP_11 {
-                        HttpResponse::MethodNotAllowed()
-                    } else {
-                        HttpResponse::BadRequest()
-                    }
-                    .finish(),
-                ));
-            }
-
             // access control
-            if (is_upload_pack && !registry.config().upload_on())
+            if (!is_upload_pack && !is_receive_pack) // from query string
+                || (is_upload_pack && !registry.config().upload_on()) // from registry config(.toml)
                 || (is_receive_pack && !registry.config().receive_on())
             {
                 return Ok(no_cache(

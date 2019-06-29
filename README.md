@@ -5,9 +5,9 @@
 ## RoadMap
 
 - [ ] Serve a index repository and crates
-    - [ ] HTTP server
+    - [x] HTTP server
         - [x] The Dumb Protocol
-        - [ ] The Smart Protocol
+        - [x] The Smart Protocol(except git-receive-pack)
     - [ ] Git server
     - [ ] No dependency on the `git` command
 - [ ] Periodic update

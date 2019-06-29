@@ -1,11 +1,14 @@
 # SilkRoad
 
-### [WIP]
+### A full-featured registry server for Cargo. [WIP] 
 
 ## RoadMap
 
 - [ ] Serve a index repository and crates
-    - [ ] Git&HTTP server
+    - [ ] HTTP server
+        - [x] The Dumb Protocol
+        - [ ] The Smart Protocol
+    - [ ] Git server
     - [ ] No dependency on the `git` command
 - [ ] Periodic update
     - [ ] Downloader

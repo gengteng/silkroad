@@ -16,9 +16,17 @@ pub enum SkrdError {
     #[fail(display = "Log error: {}", _0)]
     Log(#[cause] log::SetLoggerError),
 
-    /// Serde error
+    /// Toml error
+    #[fail(display = "Toml error: {}", _0)]
+    Toml(toml::de::Error),
+
+    /// Json error
+    #[fail(display = "Toml error: {}", _0)]
+    Json(serde_json::Error),
+
+    /// Git error
     #[fail(display = "Serde error: {}", _0)]
-    Serde(toml::de::Error),
+    Git(git2::Error),
 
     /// Custom error
     #[fail(display = "Custom error: {}", _0)]
@@ -45,7 +53,19 @@ impl From<log::SetLoggerError> for SkrdError {
 
 impl std::convert::From<toml::de::Error> for SkrdError {
     fn from(err: toml::de::Error) -> SkrdError {
-        SkrdError::Serde(err)
+        SkrdError::Toml(err)
+    }
+}
+
+impl std::convert::From<git2::Error> for SkrdError {
+    fn from(err: git2::Error) -> Self {
+        SkrdError::Git(err)
+    }
+}
+
+impl std::convert::From<serde_json::Error> for SkrdError {
+    fn from(err: serde_json::Error) -> Self {
+        SkrdError::Json(err)
     }
 }
 

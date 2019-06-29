@@ -71,6 +71,21 @@ impl Registry {
     pub fn config(&self) -> &RegistryConfig {
         &self.config
     }
+
+    pub fn base_url(&self) -> String {
+        let config = self.config();
+        format!(
+            "{}://{}{}/{}",
+            if config.ssl() { "http" } else { "http" },
+            config.domain(),
+            if is_default_port(config.port(), config.ssl()) {
+                "".to_owned()
+            } else {
+                format!(":{}", config.port())
+            },
+            config.name()
+        )
+    }
 }
 
 impl FromStr for Registry {
@@ -184,4 +199,18 @@ struct AccessControl {
     receive: bool,
     #[serde(rename = "git-upload-pack")]
     upload: bool,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct UrlConfig {
+    pub dl: String,
+    pub api: String,
+}
+
+fn is_default_port(port: u16, ssl: bool) -> bool {
+    if ssl {
+        port == 443u16
+    } else {
+        port == 80u16
+    }
 }

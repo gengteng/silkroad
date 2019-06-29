@@ -14,10 +14,11 @@ use std::{
 };
 use structopt::StructOpt;
 
+use crate::util::write_config_json;
 use crate::{
     error::SkrdResult,
     registry::Registry,
-    util::{cache_forever, get_service_from_query_string, is_default_port, no_cache},
+    util::{cache_forever, get_service_from_query_string, no_cache},
 };
 
 #[derive(Debug, StructOpt)]
@@ -76,30 +77,28 @@ impl Serve {
 
         let addr = SocketAddr::new(config.ip(), config.port());
 
-        let proto = if config.ssl() {
+        if config.ssl() {
             server
                 .bind_rustls(addr, config.build_ssl_config()?)?
                 .start();
-            "http"
         } else {
             server.bind(addr)?.start();
-            "http"
         };
 
-        let colon_port = if is_default_port(addr.port(), config.ssl()) {
-            "".to_owned()
-        } else {
-            format!(":{}", addr.port())
-        };
+        write_config_json(&self.registry).and_then(|o| {
+            if let Some(oid) = o {
+                info!("Custom url(dl and api) has been written to config.json.(commid id: {})", oid);
+            }
+
+            Ok(o)
+        })?;
 
         info!("Registry server started.");
         info!(
-            "Users need to add this source to Cargo's configuration => {}://{}{}/{}/index",
-            proto,
-            config.domain(),
-            colon_port,
-            config.name()
+            "Users need to add this source to Cargo's configuration => {}/index",
+            self.registry.base_url()
         );
+
         sys.run()?;
         Ok(())
     }

@@ -41,6 +41,10 @@ pub enum SkrdError {
     #[fail(display = "FromUtf8 error: {}", _0)]
     FromUtf8(std::string::FromUtf8Error),
 
+    /// Poison error
+    #[fail(display = "Poison error.")]
+    Poison(String),
+
     /// Custom error
     #[fail(display = "Custom error: {}", _0)]
     Custom(String),
@@ -103,6 +107,12 @@ impl From<actix_http::error::PayloadError> for SkrdError {
 impl From<std::string::FromUtf8Error> for SkrdError {
     fn from(err: std::string::FromUtf8Error) -> Self {
         SkrdError::FromUtf8(err)
+    }
+}
+
+impl<T> From<std::sync::PoisonError<T>> for SkrdError {
+    fn from(err: std::sync::PoisonError<T>) -> Self {
+        SkrdError::Poison(err.to_string())
     }
 }
 

@@ -25,6 +25,7 @@ use mime::Mime;
 use std::io::Write;
 use std::process::Stdio;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -36,6 +37,8 @@ pub struct Serve {
     )]
     registry: Registry,
 }
+
+type Cache = Arc<Mutex<Option<(web::Bytes, Vec<u8>)>>>;
 
 impl Serve {
     pub fn serve(&self) -> SkrdResult<()> {
@@ -50,9 +53,11 @@ impl Serve {
         let sys = actix_rt::System::new("silk_road");
 
         let reg = self.registry.clone();
+        let cache: Cache = Arc::new(Mutex::new(None));
 
         let server = HttpServer::new(move || {
             App::new()
+                .data(cache.clone())
                 .data(reg.clone())
                 .wrap(Logger::default())
                 .wrap(DefaultHeaders::new().header(
@@ -110,10 +115,24 @@ impl Serve {
 }
 
 fn api_scope() -> actix_web::Scope {
-    web::scope("/api/v1").route(
-        "/crates/{name}/{version}/download",
-        web::get().to(redirect_download),
-    )
+    web::scope("/api/v1/crates")
+        .service(web::resource("").route(web::get().to(search)))
+        .route("/new", web::put().to(publish))
+        .service(
+            web::scope("/{name}")
+                .service(
+                    web::resource("/owners")
+                        .route(web::get().to(get_owners))
+                        .route(web::put().to(add_owners))
+                        .route(web::delete().to(delete_owners)),
+                )
+                .service(
+                    web::scope("/{version}")
+                        .route("/download", web::get().to(redirect_download))
+                        .route("/yank", web::put().to(yank))
+                        .route("/unyank", web::put().to(unyank)),
+                ),
+        )
 }
 
 fn index_scope<P: Into<PathBuf>>(index_path: P) -> actix_web::Scope {
@@ -205,11 +224,11 @@ fn return_404() -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
 
-// TODO: optimize => Response time is around 10 seconds
 fn git_upload_pack(
     request: HttpRequest,
     body: web::Bytes,
     registry: web::Data<Registry>,
+    cache: web::Data<Cache>,
 ) -> SkrdResult<HttpResponse> {
     if request.content_type() != "application/x-git-upload-pack-request" {
         return Ok(HttpResponse::Forbidden().finish());
@@ -217,6 +236,16 @@ fn git_upload_pack(
 
     if !registry.config().upload_on() {
         return Ok(HttpResponse::Forbidden().finish());
+    }
+
+    let mut guard = cache.lock()?;
+    if let Some((b, o)) = guard.as_ref() {
+        if b.eq(&body) {
+            info!("cache hit");
+            return Ok(HttpResponse::Ok()
+                .content_type("application/x-git-upload-pack-result")
+                .body(o.clone()));
+        }
     }
 
     let mut child = PsCommand::new("git")
@@ -236,16 +265,15 @@ fn git_upload_pack(
     }
 
     let output = child.wait_with_output()?;
+    *guard = Some((body.clone(), output.stdout.clone()));
+    info!("cache missed and insert.");
     Ok(HttpResponse::Ok()
         .content_type("application/x-git-upload-pack-result")
         .body(output.stdout))
 }
 
 // TODO: git_receive_pack
-fn git_receive_pack(
-    request: HttpRequest,
-    _registry: web::Data<Registry>,
-) -> SkrdResult<HttpResponse> {
+fn git_receive_pack(request: HttpRequest) -> SkrdResult<HttpResponse> {
     info!("{:?}", request);
     Ok(HttpResponse::Ok()
         .content_type("application/x-git-receive-pack-result")
@@ -270,7 +298,7 @@ fn get_info_refs(
                 return Ok(no_cache(
                     HttpResponse::Ok()
                         .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-                        .body(update_and_get_refs(registry)?),
+                        .body(update_and_get_refs(&registry)?),
                 ));
             }
 
@@ -311,12 +339,12 @@ fn get_info_refs(
         _ => Ok(no_cache(
             HttpResponse::Ok()
                 .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-                .body(update_and_get_refs(registry)?),
+                .body(update_and_get_refs(&registry)?),
         )),
     }
 }
 
-fn update_and_get_refs(registry: web::Data<Registry>) -> SkrdResult<String> {
+fn update_and_get_refs(registry: &Registry) -> SkrdResult<String> {
     let status = PsCommand::new("git")
         .current_dir(registry.index_path())
         .arg("update-server-info") // exit immediately after initial ref advertisement
@@ -421,4 +449,32 @@ fn send_file_with_custom_mime<P: AsRef<Path>>(
     Ok(actix_files::NamedFile::open(filepath)?
         .set_content_type(content_type)
         .use_last_modified(true))
+}
+
+fn publish() -> SkrdResult<impl Responder> {
+    Ok(HttpResponse::Ok().finish())
+}
+
+fn get_owners() -> SkrdResult<impl Responder> {
+    Ok(HttpResponse::Ok().finish())
+}
+
+fn add_owners() -> SkrdResult<impl Responder> {
+    Ok(HttpResponse::Ok().finish())
+}
+
+fn delete_owners() -> SkrdResult<impl Responder> {
+    Ok(HttpResponse::Ok().finish())
+}
+
+fn yank() -> SkrdResult<impl Responder> {
+    Ok(HttpResponse::Ok().finish())
+}
+
+fn unyank() -> SkrdResult<impl Responder> {
+    Ok(HttpResponse::Ok().finish())
+}
+
+fn search() -> SkrdResult<impl Responder> {
+    Ok(HttpResponse::Ok().finish())
 }

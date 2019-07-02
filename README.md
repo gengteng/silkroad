@@ -10,7 +10,7 @@ A full-featured registry server for Cargo.
 
 ## RoadMap
 
-- [ ] Serve a index repository and all crates
+- [ ] Serve an index repository and all crates
     - [x] HTTP server
         - [x] The Dumb Protocol
         - [x] The Smart Protocol(except git-receive-pack)

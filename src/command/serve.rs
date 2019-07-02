@@ -241,7 +241,6 @@ fn git_upload_pack(
     let mut guard = cache.lock()?;
     if let Some((b, o)) = guard.as_ref() {
         if b.eq(&body) {
-            info!("cache hit");
             return Ok(HttpResponse::Ok()
                 .content_type("application/x-git-upload-pack-result")
                 .body(o.clone()));
@@ -266,7 +265,6 @@ fn git_upload_pack(
 
     let output = child.wait_with_output()?;
     *guard = Some((body.clone(), output.stdout.clone()));
-    info!("cache missed and insert.");
     Ok(HttpResponse::Ok()
         .content_type("application/x-git-upload-pack-result")
         .body(output.stdout))

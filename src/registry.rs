@@ -2,8 +2,9 @@ use crate::error::{SkrdError, SkrdResult};
 use rustls::internal::pemfile::{certs, rsa_private_keys};
 use rustls::{NoClientAuth, ServerConfig};
 use serde_derive::{Deserialize, Serialize};
-use std::io::BufReader;
-use std::net::IpAddr;
+use std::fs::OpenOptions;
+use std::io::{BufReader, Write};
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
 
@@ -51,8 +52,41 @@ impl Registry {
             config,
         };
 
-        std::fs::create_dir_all(&registry.index_path)?;
-        std::fs::create_dir_all(&registry.crates_path)?;
+        Ok(registry)
+    }
+
+    pub fn create<P: Into<PathBuf>>(root: P, name: &str) -> SkrdResult<Self> {
+        let root = root.into();
+        std::fs::create_dir(&root)?;
+        info!("Root path {:?} is created.", root);
+
+        let index_path = root.join(Registry::INDEX_DIRECTORY);
+        std::fs::create_dir(&index_path)?;
+        info!("Index path {:?} is created.", index_path);
+
+        let crates_path = root.join(Registry::CRATES_DIRECTORY);
+        std::fs::create_dir(&crates_path)?;
+        info!("Crates path {:?} is created.", crates_path);
+
+        let toml_path = root.join(Registry::TOML_FILE);
+        let config = RegistryConfig::create(name);
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&toml_path)?;
+        let toml = toml::to_string_pretty(&config)?;
+        file.write_all(toml.as_bytes())?;
+        drop(file);
+        info!("Registry config file {:?} is created.", toml_path);
+
+        let registry = Registry {
+            // join before `config` moved
+            index_git_path: index_path.join(Registry::INDEX_GIT_DIRECTORY),
+            index_path,
+            crates_path,
+            root,
+            config,
+        };
 
         Ok(registry)
     }
@@ -132,12 +166,22 @@ pub struct RegistryConfig {
 }
 
 impl RegistryConfig {
-    fn open<P: Into<PathBuf>>(path: P) -> SkrdResult<Self> {
+    pub fn open<P: Into<PathBuf>>(path: P) -> SkrdResult<Self> {
         let mut file = File::open(path.into())?;
         let mut content = String::with_capacity(file.metadata()?.len() as usize);
         file.read_to_string(&mut content)?;
 
         Ok(toml::from_str::<RegistryConfig>(&content)?)
+    }
+
+    pub fn create(name: &str) -> Self {
+        RegistryConfig {
+            meta: Meta {
+                name: name.to_owned(),
+            },
+            http: HttpConfig::default(),
+            access: AccessControl::default(),
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -198,12 +242,34 @@ struct HttpConfig {
     key: PathBuf,
 }
 
+impl Default for HttpConfig {
+    fn default() -> Self {
+        HttpConfig {
+            domain: "localhost".to_owned(),
+            ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            port: 80,
+            ssl: false,
+            cert: PathBuf::new(),
+            key: PathBuf::new(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct AccessControl {
     #[serde(rename = "git-receive-pack")]
     receive: bool,
     #[serde(rename = "git-upload-pack")]
     upload: bool,
+}
+
+impl Default for AccessControl {
+    fn default() -> Self {
+        AccessControl {
+            receive: true,
+            upload: true,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]

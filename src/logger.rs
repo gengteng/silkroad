@@ -13,6 +13,7 @@ impl LoggerGuard {
             .build()
             .fuse();
         let drain = slog_async::Async::new(drain)
+            .chan_size(1024)
             .build()
             .filter_level(level)
             .fuse();

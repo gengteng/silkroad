@@ -25,15 +25,12 @@ fn main() -> SkrdResult<()> {
     let command = Command::from_args();
 
     match command {
-        Command::New(_new) => Err(SkrdError::Custom(
-            "Subcommand new is unimplemented!".to_owned(),
-        )),
+        Command::Create(create) => create.create(),
+        Command::Mirror(mirror) => mirror.mirror(),
         Command::Serve(serve) => serve.serve(),
-        Command::Pack(_pack) => Err(SkrdError::Custom(
-            "Subcommand pack is unimplemented!".to_owned(),
-        )),
-        Command::Execute(_exec) => Err(SkrdError::Custom(
-            "Subcommand exec is unimplemented".to_owned(),
-        )),
+        Command::Package(_pack) => {
+            Err(SkrdError::StaticCustom("Subcommand pack is unimplemented!"))
+        }
+        Command::Execute(_exec) => Err(SkrdError::StaticCustom("Subcommand exec is unimplemented")),
     }
 }

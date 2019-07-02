@@ -19,7 +19,11 @@ pub enum SkrdError {
 
     /// Toml error
     #[fail(display = "Toml error: {}", _0)]
-    Toml(toml::de::Error),
+    TomlDeserialize(toml::de::Error),
+
+    /// Toml error
+    #[fail(display = "Toml error: {}", _0)]
+    TomlSerialize(toml::ser::Error),
 
     /// Json error
     #[fail(display = "Toml error: {}", _0)]
@@ -76,7 +80,13 @@ impl From<log::SetLoggerError> for SkrdError {
 
 impl From<toml::de::Error> for SkrdError {
     fn from(err: toml::de::Error) -> SkrdError {
-        SkrdError::Toml(err)
+        SkrdError::TomlDeserialize(err)
+    }
+}
+
+impl From<toml::ser::Error> for SkrdError {
+    fn from(err: toml::ser::Error) -> SkrdError {
+        SkrdError::TomlSerialize(err)
     }
 }
 

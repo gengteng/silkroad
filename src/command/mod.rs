@@ -1,25 +1,30 @@
 use structopt::StructOpt;
 
 pub mod execute;
-pub mod new;
-pub mod pack;
+pub mod mirror;
+pub mod create;
+pub mod package;
 pub mod serve;
 
 /// SilkRoad Command
 #[derive(Debug, StructOpt)]
 #[structopt(name = "skrd")]
 pub enum Command {
-    /// create a new registry directory
-    #[structopt(name = "new")]
-    New(new::New),
+    /// Create a new registry directory
+    #[structopt(name = "create")]
+    Create(create::Create),
+
+    /// Mirror an existing source
+    #[structopt(name = "mirror")]
+    Mirror(mirror::Mirror),
 
     /// Start a full featured registry
     #[structopt(name = "serve")]
     Serve(serve::Serve),
 
     /// Pack up index and crates for use in a LAN
-    #[structopt(name = "pack")]
-    Pack(pack::Pack),
+    #[structopt(name = "package")]
+    Package(package::Package),
 
     /// Execute the commands in a TOML file
     #[structopt(name = "exec")]

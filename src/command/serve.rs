@@ -35,14 +35,22 @@ pub struct Serve {
         value_name = "REGISTRY PATH",
         parse(try_from_str)
     )]
-    registry: Registry,
+    registry: Option<Registry>,
 }
 
-type Cache = Arc<Mutex<Option<(web::Bytes, Vec<u8>)>>>;
+type UploadPackCache = Arc<Mutex<Option<(web::Bytes, Vec<u8>)>>>;
 
 impl Serve {
-    pub fn serve(&self) -> SkrdResult<()> {
-        let config = self.registry.config();
+    pub fn serve(self) -> SkrdResult<()> {
+        // if registry is not specified, try current directory
+        let registry = if let Some(registry) = self.registry {
+            registry
+        } else {
+            let current_dir = std::env::current_dir()?;
+            Registry::open(current_dir)?
+        };
+
+        let config = registry.config();
         info!("Registry '{}' loaded.", config.name());
         info!(
             "Access Control => git-receive-pack: {}, git-upload-pack: {}",
@@ -52,8 +60,9 @@ impl Serve {
 
         let sys = actix_rt::System::new("silk_road");
 
-        let reg = self.registry.clone();
-        let cache: Cache = Arc::new(Mutex::new(None));
+        // HttpServer shared data
+        let reg = registry.clone();
+        let cache: UploadPackCache = Arc::new(Mutex::new(None));
 
         let server = HttpServer::new(move || {
             App::new()
@@ -92,7 +101,7 @@ impl Serve {
             server.bind(addr)?.start();
         };
 
-        write_config_json(&self.registry).and_then(|o| {
+        write_config_json(&registry).and_then(|o| {
             if let Some(oid) = o {
                 info!(
                     "Custom url(dl and api) has been written to config.json.(commid id: {})",
@@ -106,7 +115,7 @@ impl Serve {
         info!("Registry server started.");
         info!(
             "Users need to add this source to Cargo's configuration => {}/index",
-            self.registry.base_url()
+            registry.base_url()
         );
 
         sys.run()?;
@@ -228,7 +237,7 @@ fn git_upload_pack(
     request: HttpRequest,
     body: web::Bytes,
     registry: web::Data<Registry>,
-    cache: web::Data<Cache>,
+    cache: web::Data<UploadPackCache>,
 ) -> SkrdResult<HttpResponse> {
     if request.content_type() != "application/x-git-upload-pack-request" {
         return Ok(HttpResponse::Forbidden().finish());
@@ -415,7 +424,10 @@ fn get_pack_or_index_file(
     } else if url_path.ends_with(".pack") {
         "application/x-git-packed-objects"
     } else {
-        return Err(SkrdError::StaticCustom("error content type"));
+        return Err(SkrdError::Custom(format!(
+            "error file extension: {}",
+            url_path
+        )));
     };
 
     send_file_with_custom_mime(

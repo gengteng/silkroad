@@ -66,10 +66,12 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
     let mut content = String::with_capacity(file.metadata()?.len() as usize);
     file.read_to_string(&mut content)?;
 
-    let url_config_file = serde_json::from_str::<UrlConfig>(&content)?;
+    let serde_result = serde_json::from_str::<UrlConfig>(&content);
 
-    if url_config_file == url_config {
-        return Ok(None);
+    if let Ok(url_config_file) = serde_result {
+        if url_config_file == url_config {
+            return Ok(None);
+        }
     }
 
     let content = serde_json::to_string_pretty(&url_config)?;

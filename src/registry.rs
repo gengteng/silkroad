@@ -39,7 +39,7 @@ impl Registry {
 
         let config = RegistryConfig::open(root.join(Registry::TOML_FILE))?;
 
-        Ok(Registry {
+        let registry = Registry {
             // join before `config` moved
             index_git_path: root
                 .join(Registry::INDEX_DIRECTORY)
@@ -49,7 +49,12 @@ impl Registry {
 
             root,
             config,
-        })
+        };
+
+        std::fs::create_dir_all(&registry.index_path)?;
+        std::fs::create_dir_all(&registry.crates_path)?;
+
+        Ok(registry)
     }
 
     //    pub fn root(&self) -> &PathBuf {

@@ -4,8 +4,9 @@ use actix_http::http::header::HttpDate;
 use actix_web::Responder;
 use git2::build::CheckoutBuilder;
 use git2::Oid;
-use std::fs::OpenOptions;
-use std::io::{Read, Seek, SeekFrom, Write};
+use serde_json::Value;
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -118,4 +119,56 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
             &[],
         )?)),
     }
+}
+
+pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
+    let connection = if registry.crates_db_path().exists() {
+        sqlite::open(registry.crates_db_path())?
+    } else {
+        let connection = sqlite::open(registry.crates_db_path())?;
+        connection.execute(
+            "create table crate (
+                         id integer primary key,
+                         name text,
+                         version text,
+                         size integer default 0,
+                         checksum text,
+                         yanked integer default 0,
+                         downloaded integer default 0,
+                         last_update text
+                     )",
+        )?;
+        connection.execute(
+            "create table update_history (
+                         commit_id text,
+                         timestamp text
+                     )",
+        )?;
+
+        connection
+    };
+
+    let wd = walkdir::WalkDir::new(registry.index_path());
+    for w in wd {
+        match w {
+            Ok(dir) => {
+                if dir.metadata()?.is_dir() {
+                    continue;
+                }
+
+                let file = File::open(dir.path())?;
+                let reader = BufReader::new(file);
+
+                for line in reader.lines() {
+                    let json = line?;
+
+                    let a: Value = serde_json::from_str(&json)?;
+
+                    //                    println!("{:?}", a);
+                }
+            }
+            Err(e) => error!("walk error: {}", e),
+        }
+    }
+    Ok(())
 }

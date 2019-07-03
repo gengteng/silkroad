@@ -1,5 +1,6 @@
 use crate::error::{SkrdError, SkrdResult};
 use crate::registry::Registry;
+use crate::util::download_crates;
 use std::io::BufRead;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -70,17 +71,4 @@ impl Mirror {
         info!("Mirror is created.");
         Ok(())
     }
-}
-
-pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
-    let wd = walkdir::WalkDir::new(registry.index_path());
-    for w in wd {
-        match w {
-            Ok(_dir) => {
-                // TODO: insert into sqlite?
-            }
-            Err(e) => error!("walk error: {}", e),
-        }
-    }
-    Ok(())
 }

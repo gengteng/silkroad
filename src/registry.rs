@@ -24,15 +24,17 @@ use std::{fs::File, io::Read, path::PathBuf};
 pub struct Registry {
     root: PathBuf,
     config: RegistryConfig,
-    index_git_path: PathBuf,
     index_path: PathBuf,
+    index_git_path: PathBuf,
     crates_path: PathBuf,
+    crates_db_path: PathBuf,
 }
 
 impl Registry {
     pub const INDEX_GIT_DIRECTORY: &'static str = ".git";
     pub const INDEX_DIRECTORY: &'static str = "index";
     pub const CRATES_DIRECTORY: &'static str = "crates";
+    pub const CRATES_DB: &'static str = "crates.db";
     pub const TOML_FILE: &'static str = "registry.toml";
 
     pub fn open<P: Into<PathBuf>>(root: P) -> SkrdResult<Self> {
@@ -40,13 +42,16 @@ impl Registry {
 
         let config = RegistryConfig::open(root.join(Registry::TOML_FILE))?;
 
+        let index_path = root.join(Registry::INDEX_DIRECTORY);
+        let crates_path = root.join(Registry::CRATES_DIRECTORY);
+;
+
         let registry = Registry {
-            // join before `config` moved
-            index_git_path: root
-                .join(Registry::INDEX_DIRECTORY)
-                .join(Registry::INDEX_GIT_DIRECTORY),
-            index_path: root.join(Registry::INDEX_DIRECTORY),
-            crates_path: root.join(Registry::CRATES_DIRECTORY),
+            index_git_path: index_path.join(Registry::INDEX_GIT_DIRECTORY),
+            index_path,
+
+            crates_db_path: crates_path.join(Registry::CRATES_DB),
+            crates_path,
 
             root,
             config,
@@ -79,11 +84,14 @@ impl Registry {
         drop(file);
         info!("Registry config file {:?} is created.", toml_path);
 
+        let index_git_path = index_path.join(Registry::INDEX_GIT_DIRECTORY);
+        let crates_db_path = crates_path.join(Registry::CRATES_DB);
+
         let registry = Registry {
-            // join before `config` moved
-            index_git_path: index_path.join(Registry::INDEX_GIT_DIRECTORY),
             index_path,
+            index_git_path,
             crates_path,
+            crates_db_path,
             root,
             config,
         };
@@ -95,16 +103,20 @@ impl Registry {
     //        &self.root
     //    }
 
-    pub fn index_git_path(&self) -> &PathBuf {
-        &self.index_git_path
-    }
-
     pub fn index_path(&self) -> &PathBuf {
         &self.index_path
     }
 
+    pub fn index_git_path(&self) -> &PathBuf {
+        &self.index_git_path
+    }
+
     pub fn crates_path(&self) -> &PathBuf {
         &self.crates_path
+    }
+
+    pub fn crates_db_path(&self) -> &PathBuf {
+        &self.crates_db_path
     }
 
     pub fn config(&self) -> &RegistryConfig {

@@ -1,6 +1,7 @@
 use crate::{
     error::{SkrdError, SkrdResult},
     registry::Registry,
+    util::download_crates,
 };
 use structopt::StructOpt;
 
@@ -26,6 +27,8 @@ impl Update {
 
         info!("Start to update mirror '{}' ...", registry.config().name());
 
+        info!("{:?}", registry);
+
         let repo = git2::Repository::open(registry.index_path())?;
 
         let remotes = repo.remotes()?;
@@ -37,6 +40,8 @@ impl Update {
 
         repo.find_remote("origin")?.fetch(&["master"], None, None)?;
         info!("Index synchronization is complete.");
+
+        download_crates(&registry)?;
 
         Ok(())
     }

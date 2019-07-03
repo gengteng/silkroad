@@ -1,7 +1,6 @@
 use crate::error::{SkrdError, SkrdResult};
 use crate::registry::Registry;
 use crate::util::download_crates;
-use std::io::BufRead;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -38,7 +37,7 @@ impl Mirror {
                 .to_owned()
         };
 
-        let registry = Registry::create(&self.path, &name)?;
+        let registry = Registry::mirror(&self.path, &name, &self.source)?;
 
         info!(
             "{} is being cloned into {:?} ...",
@@ -46,29 +45,24 @@ impl Mirror {
             registry.index_path()
         );
 
-        git2::Repository::clone(&self.source, registry.index_path())?;
+        drop(git2::Repository::clone(
+            &self.source,
+            registry.index_path(),
+        )?);
 
         info!("{} cloned.", self.source);
 
-        info!("Continue to download crates?(Y/n)");
+        info!("Start to download crates...");
 
-        let stdin = std::io::stdin();
-
-        let mut lines = stdin.lock().lines();
-
-        let download = if let Some(Ok(download)) = lines.next() {
-            download == "Y"
-        } else {
-            false
-        };
-
-        if download {
-            info!("Start to download crates...");
-
-            download_crates(&registry)?;
-        }
+        download_crates(&registry)?;
 
         info!("Mirror is created.");
         Ok(())
     }
 }
+
+// 1. Check and create the directory
+// 2. Create `registry.toml`.
+// 3. Clone the index project
+// 4. Follow the index to download crates
+// 5. Use the database to record downloads

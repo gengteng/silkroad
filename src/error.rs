@@ -53,9 +53,6 @@ pub enum SkrdError {
     #[fail(display = "Walk dir error: {}", _0)]
     Walk(walkdir::Error),
 
-    #[fail(display = "Sqlite error: {}", _0)]
-    Sqlite(sqlite::Error),
-
     /// Custom error
     #[fail(display = "Custom error: {}", _0)]
     Custom(String),
@@ -136,12 +133,6 @@ impl<T> From<std::sync::PoisonError<T>> for SkrdError {
 impl From<walkdir::Error> for SkrdError {
     fn from(err: walkdir::Error) -> Self {
         SkrdError::Walk(err)
-    }
-}
-
-impl From<sqlite::Error> for SkrdError {
-    fn from(err: sqlite::Error) -> Self {
-        SkrdError::Sqlite(err)
     }
 }
 

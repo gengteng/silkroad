@@ -1,8 +1,11 @@
+use crate::registry::UrlConfig;
 use crate::{
     error::{SkrdError, SkrdResult},
     registry::Registry,
 };
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -32,14 +35,27 @@ impl Create {
 
         let registry = Registry::create(&self.path, &name)?;
 
-        git2::Repository::init(registry.index_path())?;
+        let repo = git2::Repository::init(registry.index_path())?;
+
+        let mut index = repo.index()?;
+
+        let content = serde_json::to_string_pretty(&UrlConfig::from(&registry))?;
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(registry.index_path().join("config.json"))?;
+        file.write_all(content.as_bytes())?;
+        drop(file);
+
+        index.add_path(Path::new("config.json"))?;
+        index.write()?;
+
+        let tree = index.write_tree().and_then(|id| repo.find_tree(id))?;
+        let sig = repo.signature()?;
+
+        repo.commit(Some("HEAD"), &sig, &sig, "base_url", &tree, &[])?;
 
         Ok(())
     }
 }
-
-// 1. Check and create the directory
-// 2. Create `registry.toml`.
-// 3. Clone the index project
-// 4. Follow the index to download crates
-// 5. Use the database to record downloads

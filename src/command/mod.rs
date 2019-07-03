@@ -15,11 +15,11 @@ pub enum Command {
     #[structopt(name = "create")]
     Create(create::Create),
 
-    /// Update an existing mirror
+    /// Mirror an existing source
     #[structopt(name = "mirror")]
     Mirror(mirror::Mirror),
 
-    /// Mirror an existing source
+    /// Update an existing mirror
     #[structopt(name = "update")]
     Update(update::Update),
 

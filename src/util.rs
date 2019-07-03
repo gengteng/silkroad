@@ -1,13 +1,12 @@
 use crate::error::SkrdResult;
-use crate::registry::{Registry, UrlConfig};
+use crate::registry::{Crate, Registry, UrlConfig};
 use actix_http::http::header::HttpDate;
 use actix_web::Responder;
 use git2::build::CheckoutBuilder;
 use git2::Oid;
-use serde_json::Value;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 /// Get the service name from url query string
@@ -51,11 +50,7 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
     const CONFIG_JSON: &str = "config.json";
     let path = registry.index_path().join(CONFIG_JSON);
 
-    let base_url = registry.base_url();
-    let url_config = UrlConfig {
-        dl: format!("{}{}", base_url, "/api/v1/crates"),
-        api: base_url,
-    };
+    let url_config = UrlConfig::from(registry);
 
     let repo = git2::Repository::open(registry.index_path())?;
     repo.checkout_head(Some(CheckoutBuilder::new().path("config.json").force()))?;
@@ -122,53 +117,67 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
 }
 
 pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
-    let connection = if registry.crates_db_path().exists() {
-        sqlite::open(registry.crates_db_path())?
-    } else {
-        let connection = sqlite::open(registry.crates_db_path())?;
-        connection.execute(
-            "create table crate (
-                         id integer primary key,
-                         name text,
-                         version text,
-                         size integer default 0,
-                         checksum text,
-                         yanked integer default 0,
-                         downloaded integer default 0,
-                         last_update text
-                     )",
-        )?;
-        connection.execute(
-            "create table update_history (
-                         commit_id text,
-                         timestamp text
-                     )",
-        )?;
-
-        connection
-    };
-
     let wd = walkdir::WalkDir::new(registry.index_path());
+    let mut checked = 0;
+    let mut downloaded = 0;
     for w in wd {
         match w {
-            Ok(dir) => {
-                if dir.metadata()?.is_dir() {
+            Ok(entry) => {
+                let metadata = entry.metadata()?;
+                if metadata.is_dir() || !metadata.is_file() {
                     continue;
                 }
 
-                let file = File::open(dir.path())?;
+                if entry.path().starts_with(registry.index_git_path())
+                    || entry.file_name() == "config.json"
+                {
+                    continue;
+                }
+
+                let file = File::open(entry.path())?;
                 let reader = BufReader::new(file);
 
                 for line in reader.lines() {
                     let json = line?;
 
-                    let a: Value = serde_json::from_str(&json)?;
+                    let krate = serde_json::from_str::<Crate>(&json)?;
 
-                    //                    println!("{:?}", a);
+                    let crate_path = get_crate_path(&krate.name, &krate.version);
+
+                    checked += 1;
+                    if checked % 1000 == 0 {
+                        info!("{} crates has been checked.", checked);
+                    }
+
+                    if !crate_path.exists() {
+                        downloaded += 1;
+                        // TODO: download
+                    }
                 }
             }
             Err(e) => error!("walk error: {}", e),
         }
     }
+    info!(
+        "Total: {} crates is checked, {} crates is downloaded.",
+        checked, downloaded
+    );
     Ok(())
+}
+
+pub fn get_crate_path(name: &str, version: &str) -> PathBuf {
+    match name.len() {
+        1 => format!("{}/{}/{}-{}.crate", 1, name, name, version),
+        2 => format!("{}/{}/{}-{}.crate", 2, name, name, version),
+        3 => format!("{}/{}/{}/{}-{}.crate", 3, &name[..1], name, name, version),
+        _ => format!(
+            "{}/{}/{}/{}-{}.crate",
+            &name[..2],
+            &name[2..4],
+            name,
+            name,
+            version
+        ),
+    }
+    .into()
 }

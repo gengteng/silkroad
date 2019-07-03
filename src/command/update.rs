@@ -39,6 +39,7 @@ impl Update {
         }
 
         repo.find_remote("origin")?.fetch(&["master"], None, None)?;
+        drop(repo);
         info!("Index synchronization is complete.");
 
         download_crates(&registry)?;

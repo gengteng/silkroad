@@ -1,4 +1,7 @@
-use crate::error::SkrdResult;
+use crate::{
+    error::{SkrdError, SkrdResult},
+    registry::Registry,
+};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -17,6 +20,20 @@ pub struct Create {
 
 impl Create {
     pub fn create(self) -> SkrdResult<()> {
+        let name = if let Some(name) = &self.name {
+            name.clone()
+        } else {
+            self.path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| SkrdError::StaticCustom("the registry path provided is invalid"))?
+                .to_owned()
+        };
+
+        let registry = Registry::create(&self.path, &name)?;
+
+        git2::Repository::init(registry.index_path())?;
+
         Ok(())
     }
 }

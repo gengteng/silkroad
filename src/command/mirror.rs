@@ -26,8 +26,6 @@ pub struct Mirror {
 
 impl Mirror {
     pub fn mirror(self) -> SkrdResult<()> {
-        /* TODO: Check if the path is already a mirror, if so, update the index and download crates, if not, create a new one */
-
         // check name
         let name = if let Some(name) = &self.name {
             name.clone()
@@ -65,9 +63,24 @@ impl Mirror {
 
         if download {
             info!("Start to download crates...");
+
+            download_crates(&registry)?;
         }
 
         info!("Mirror is created.");
         Ok(())
     }
+}
+
+pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
+    let wd = walkdir::WalkDir::new(registry.index_path());
+    for w in wd {
+        match w {
+            Ok(_dir) => {
+                // TODO: insert into sqlite?
+            }
+            Err(e) => error!("walk error: {}", e),
+        }
+    }
+    Ok(())
 }

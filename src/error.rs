@@ -49,6 +49,10 @@ pub enum SkrdError {
     #[fail(display = "Poison error.")]
     Poison(String),
 
+    /// Walk dir error
+    #[fail(display = "Walk dir error.")]
+    Walk(walkdir::Error),
+
     /// Custom error
     #[fail(display = "Custom error: {}", _0)]
     Custom(String),
@@ -123,6 +127,12 @@ impl From<std::string::FromUtf8Error> for SkrdError {
 impl<T> From<std::sync::PoisonError<T>> for SkrdError {
     fn from(err: std::sync::PoisonError<T>) -> Self {
         SkrdError::Poison(err.to_string())
+    }
+}
+
+impl From<walkdir::Error> for SkrdError {
+    fn from(err: walkdir::Error) -> Self {
+        SkrdError::Walk(err)
     }
 }
 

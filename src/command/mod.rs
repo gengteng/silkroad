@@ -5,6 +5,7 @@ pub mod execute;
 pub mod mirror;
 pub mod package;
 pub mod serve;
+pub mod update;
 
 /// SilkRoad Command
 #[derive(Debug, StructOpt)]
@@ -14,9 +15,13 @@ pub enum Command {
     #[structopt(name = "create")]
     Create(create::Create),
 
-    /// Mirror an existing source
+    /// Update an existing mirror
     #[structopt(name = "mirror")]
     Mirror(mirror::Mirror),
+
+    /// Mirror an existing source
+    #[structopt(name = "update")]
+    Update(update::Update),
 
     /// Start a full featured registry
     #[structopt(name = "serve")]
@@ -26,7 +31,7 @@ pub enum Command {
     #[structopt(name = "package")]
     Package(package::Package),
 
-    /// Execute the commands in a TOML file
+    /// Execute a command in a TOML file
     #[structopt(name = "exec")]
     Execute(execute::Execute),
 }

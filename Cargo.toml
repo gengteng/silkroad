@@ -15,6 +15,7 @@ actix-http = "0.2.4"
 futures = "0.1.27"
 rustls = "0.15"
 mime = "0.3.13"
+walkdir = "2.2.8"
 
 structopt = "0.2"
 

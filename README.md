@@ -24,7 +24,7 @@ A full-featured registry server for Cargo.
         - [ ] Yank & Unyank
         - [ ] Owners
 - [ ] Mirroring
-    - [ ] Index clone and sync
+    - [X] Index clone and sync
     - [ ] Crates download
     - [ ] Timer
 - [ ] Server Migration

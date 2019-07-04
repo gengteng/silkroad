@@ -266,6 +266,15 @@ impl RegistryConfig {
         self.access.upload
     }
 
+    pub fn source(&self) -> Option<&str> {
+        match &self.mirror {
+            Some(mirror) => {
+                Some(&mirror.source)
+            }
+            None => None
+        }
+    }
+
     pub fn build_ssl_config(&self) -> SkrdResult<ServerConfig> {
         let mut config = ServerConfig::new(NoClientAuth::new());
 

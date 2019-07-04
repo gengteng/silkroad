@@ -13,12 +13,11 @@ actix-files = "0.1.2"
 actix-rt = "0.2"
 actix-http = "0.2.4"
 futures = "0.1.27"
-tokio-codec = "0.1.1"
-tokio-fs = "0.1.6"
-tokio-io = "0.1.12"
 rustls = "0.15"
 mime = "0.3.13"
 walkdir = "2.2.8"
+
+reqwest = "0.9.18"
 
 structopt = "0.2"
 

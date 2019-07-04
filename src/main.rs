@@ -18,6 +18,7 @@ use slog::Level;
 
 mod registry;
 mod util;
+mod stream;
 
 fn main() -> SkrdResult<()> {
     let _logger_guard = LoggerGuard::init("SilkRoad", Level::Info);

@@ -1,13 +1,22 @@
-use crate::error::SkrdResult;
+use crate::error::{
+    SkrdError,
+    SkrdResult
+};
 use crate::registry::{Crate, Registry, UrlConfig};
+use crate::stream::WalkStream;
 use actix_http::http::header::HttpDate;
 use actix_web::Responder;
 use git2::build::CheckoutBuilder;
 use git2::Oid;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+use futures::{
+    future::Future,
+    stream::Stream
+};
+use actix_web::client::Client;
 
 /// Get the service name from url query string
 ///
@@ -117,47 +126,78 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
 }
 
 pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
-    let wd = walkdir::WalkDir::new(registry.index_path());
+//    let wd = walkdir::WalkDir::new(registry.index_path());
+//    let client = Client::default();
+//    let mut stream: WalkStream = wd.into();
+//    let filter = stream.filter(|e| {
+//        if let Ok(metadata) = e.metadata() {
+//            if metadata.is_dir() || !metadata.is_file() {
+//                return false;
+//            }
+//
+//            if e.path().starts_with(registry.index_git_path())
+//                || e.file_name() == "config.json"
+//            {
+//                return false;
+//            }
+//
+//            return true;
+//        }
+//
+//        return false;
+//    });
+//
+//    let download = filter.map_err(SkrdError::Walk).for_each(|e| {
+//
+//        tokio_fs::File::open("").map_err(SkrdError::Io).and_then(|file| {
+//            let codec = tokio_codec::LinesCodec::new();
+//            let read = tokio_codec::FramedRead::new(file, codec);
+//
+//            Ok(())
+//        })
+//
+//    });
+
     let mut checked = 0;
     let mut downloaded = 0;
-    for w in wd {
-        match w {
-            Ok(entry) => {
-                let metadata = entry.metadata()?;
-                if metadata.is_dir() || !metadata.is_file() {
-                    continue;
-                }
-
-                if entry.path().starts_with(registry.index_git_path())
-                    || entry.file_name() == "config.json"
-                {
-                    continue;
-                }
-
-                let file = File::open(entry.path())?;
-                let reader = BufReader::new(file);
-
-                for line in reader.lines() {
-                    let json = line?;
-
-                    let krate = serde_json::from_str::<Crate>(&json)?;
-
-                    let crate_path = get_crate_path(&krate.name, &krate.version);
-
-                    checked += 1;
-                    if checked % 1000 == 0 {
-                        info!("{} crates has been checked.", checked);
-                    }
-
-                    if !crate_path.exists() {
-                        downloaded += 1;
-                        // TODO: download
-                    }
-                }
-            }
-            Err(e) => error!("walk error: {}", e),
-        }
-    }
+//    for w in wd {
+//        match w {
+//            Ok(entry) => {
+//                let metadata = entry.metadata()?;
+//                if metadata.is_dir() || !metadata.is_file() {
+//                    continue;
+//                }
+//
+//                if entry.path().starts_with(registry.index_git_path())
+//                    || entry.file_name() == "config.json"
+//                {
+//                    continue;
+//                }
+//
+//                let file = File::open(entry.path())?;
+//                let reader = BufReader::new(file);
+//
+//                for line in reader.lines() {
+//                    let json = line?;
+//
+//                    let krate = serde_json::from_str::<Crate>(&json)?;
+//
+//                    let crate_path = registry.crates_path().join(get_crate_path(&krate.name, &krate.version));
+//
+//                    checked += 1;
+//                    if checked % 1000 == 0 {
+//                        info!("{} crates has been checked.", checked);
+//                    }
+//
+//                    if !crate_path.exists() {
+//
+//                        downloaded += 1;
+//                    }
+//                }
+//            }
+//            Err(e) => error!("walk error: {}", e),
+//        }
+//    }
     info!(
         "Total: {} crates is checked, {} crates is downloaded.",
         checked, downloaded

@@ -30,7 +30,7 @@ impl Update {
         let repo = git2::Repository::open(registry.index_path())?;
 
         let remotes = repo.remotes()?;
-        if remotes.len() == 0 {
+        if remotes.is_empty() {
             return Err(SkrdError::StaticCustom(
                 "This registry does not seem to be a mirror",
             ));

@@ -859,6 +859,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "hex-serde"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "hostname"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1859,8 +1873,11 @@ dependencies = [
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "git2 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hex-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "mime 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "openssl 0.10.23 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.9.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustls 0.15.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2652,6 +2669,8 @@ dependencies = [
 "checksum h2 0.1.24 (registry+https://github.com/rust-lang/crates.io-index)" = "69b2a5a3092cbebbc951fe55408402e696ee2ed09019137d1800fc2c411265d2"
 "checksum hashbrown 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e1de41fb8dba9714efd92241565cdff73f78508c95697dd56787d3cba27e2353"
 "checksum heck 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "20564e78d53d2bb135c343b3f47714a56af2061f1c928fdb541dc7b9fdd94205"
+"checksum hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"
+"checksum hex-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3486d7bc9e52c4c5fc1856ae8a5e4ab41d2499fc20bbc44492e244e8bf1b7012"
 "checksum hostname 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "21ceb46a83a85e824ef93669c8b390009623863b5c195d1ba747292c0c72f94e"
 "checksum http 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)" = "eed324f0f0daf6ec10c474f150505af2c143f251722bf9dbd1261bd1f2ee2c1a"
 "checksum http-body 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6741c859c1b2463a423a1dbce98d418e6c3c3fc720fb0d45528657320920292d"

@@ -27,8 +27,6 @@ impl Update {
 
         info!("Start to update mirror '{}' ...", registry.config().name());
 
-        info!("{:?}", registry);
-
         let repo = git2::Repository::open(registry.index_path())?;
 
         let remotes = repo.remotes()?;
@@ -38,9 +36,10 @@ impl Update {
             ));
         }
 
+        info!("Synchronizing index ...");
         repo.find_remote("origin")?.fetch(&["master"], None, None)?;
         drop(repo);
-        info!("Index synchronization is complete.");
+        info!("Index is synchronized.");
 
         download_crates(&registry)?;
 

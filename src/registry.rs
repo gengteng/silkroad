@@ -2,6 +2,7 @@ use crate::error::{SkrdError, SkrdResult};
 use rustls::internal::pemfile::{certs, rsa_private_keys};
 use rustls::{NoClientAuth, ServerConfig};
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{self, Display};
 use std::fs::OpenOptions;
 use std::io::{BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr};
@@ -32,13 +33,14 @@ pub struct Registry {
 impl Registry {
     pub const INDEX_GIT_DIRECTORY: &'static str = ".git";
     pub const INDEX_DIRECTORY: &'static str = "index";
+    pub const CONFIG_JSON_FILE: &'static str = "config.json";
     pub const CRATES_DIRECTORY: &'static str = "crates";
-    pub const TOML_FILE: &'static str = "registry.toml";
+    pub const REGISTRY_TOML_FILE: &'static str = "registry.toml";
 
     pub fn open<P: Into<PathBuf>>(root: P) -> SkrdResult<Self> {
         let root = root.into();
 
-        let config = RegistryConfig::open(root.join(Registry::TOML_FILE))?;
+        let config = RegistryConfig::open(root.join(Registry::REGISTRY_TOML_FILE))?;
 
         let index_path = root.join(Registry::INDEX_DIRECTORY);
         let crates_path = root.join(Registry::CRATES_DIRECTORY);
@@ -60,8 +62,11 @@ impl Registry {
 
         let (index_path, crates_path) = create_registry_dirs(&root)?;
 
-        let toml_path = root.join(Registry::TOML_FILE);
-        let config = RegistryConfig::mirror(name, source);
+        let toml_path = root.join(Registry::REGISTRY_TOML_FILE);
+
+        let mirror = Mirror::clone_index(&index_path, source)?;
+
+        let config = RegistryConfig::mirror(name, mirror);
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
@@ -69,7 +74,7 @@ impl Registry {
         let toml = toml::to_string_pretty(&config)?;
         file.write_all(toml.as_bytes())?;
         drop(file);
-        info!("Registry config file {:?} is created.", toml_path);
+        info!("Registry toml file {:?} is created.", toml_path);
 
         let index_git_path = index_path.join(Registry::INDEX_GIT_DIRECTORY);
 
@@ -89,7 +94,7 @@ impl Registry {
 
         let (index_path, crates_path) = create_registry_dirs(&root)?;
 
-        let toml_path = root.join(Registry::TOML_FILE);
+        let toml_path = root.join(Registry::REGISTRY_TOML_FILE);
         let config = RegistryConfig::create(name);
         let mut file = OpenOptions::new()
             .create_new(true)
@@ -131,6 +136,13 @@ impl Registry {
 
     pub fn config(&self) -> &RegistryConfig {
         &self.config
+    }
+
+    pub fn mirror_config(&self) -> Option<&Mirror> {
+        match &self.config.mirror {
+            Some(mirror) => Some(mirror),
+            None => None,
+        }
     }
 
     pub fn base_url(&self) -> String {
@@ -223,16 +235,12 @@ impl RegistryConfig {
         }
     }
 
-    pub fn mirror(name: &str, source: &str) -> Self {
+    pub fn mirror(name: &str, mirror: Mirror) -> Self {
         RegistryConfig {
             meta: Meta {
                 name: name.to_owned(),
             },
-            mirror: Some(Mirror {
-                source: source.to_owned(),
-                sync: true,
-                index_update_interval: 60u32,
-            }),
+            mirror: Some(mirror),
             http: HttpConfig::default(),
             access: AccessControl::default(),
         }
@@ -266,15 +274,6 @@ impl RegistryConfig {
         self.access.upload
     }
 
-    pub fn source(&self) -> Option<&str> {
-        match &self.mirror {
-            Some(mirror) => {
-                Some(&mirror.source)
-            }
-            None => None
-        }
-    }
-
     pub fn build_ssl_config(&self) -> SkrdResult<ServerConfig> {
         let mut config = ServerConfig::new(NoClientAuth::new());
 
@@ -291,20 +290,46 @@ impl RegistryConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Meta {
+pub struct Meta {
     name: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Mirror {
-    source: String,
-    sync: bool,
+pub struct Mirror {
+    pub source: String,
+    pub sync: bool,
     #[serde(rename = "index-update-interval")]
-    index_update_interval: u32,
+    pub index_update_interval: u32,
+    #[serde(rename = "origin-urls")]
+    pub origin_urls: UrlConfig,
+}
+
+impl Mirror {
+    pub fn clone_index<P: Into<PathBuf>>(index_path: P, source: &str) -> SkrdResult<Self> {
+        let index_path = index_path.into();
+
+        info!("{} is being cloned into {:?} ...", source, index_path);
+
+        drop(git2::Repository::clone(&source, &index_path)?);
+
+        let mut file = File::open(index_path.join(Registry::CONFIG_JSON_FILE))?;
+        let mut content = String::with_capacity(file.metadata()?.len() as usize);
+        file.read_to_string(&mut content)?;
+        drop(file);
+
+        let origin_url_config = serde_json::from_str::<UrlConfig>(&content)?;
+
+        Ok(Mirror {
+            source: source.to_owned(),
+            sync: true,
+            index_update_interval: 30,
+            origin_urls: origin_url_config,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct HttpConfig {
+pub struct HttpConfig {
     domain: String,
     ip: IpAddr,
     port: u16,
@@ -327,7 +352,7 @@ impl Default for HttpConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct AccessControl {
+pub struct AccessControl {
     #[serde(rename = "git-receive-pack")]
     receive: bool,
     #[serde(rename = "git-upload-pack")]
@@ -359,13 +384,19 @@ impl From<&Registry> for UrlConfig {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
-pub struct Crate {
+pub struct CrateMeta {
     pub name: String,
     #[serde(rename = "vers")]
     pub version: String,
-    #[serde(rename = "cksum")]
-    pub checksum: String,
+    #[serde(rename = "cksum", with = "hex_serde")]
+    pub checksum: [u8; 32],
     pub yanked: bool,
+}
+
+impl Display for CrateMeta {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}-{}", self.name, self.version)
+    }
 }
 
 fn is_default_port(port: u16, ssl: bool) -> bool {

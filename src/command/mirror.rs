@@ -39,17 +39,6 @@ impl Mirror {
 
         let registry = Registry::mirror(&self.path, &name, &self.source)?;
 
-        info!(
-            "{} is being cloned into {:?} ...",
-            self.source,
-            registry.index_path()
-        );
-
-        drop(git2::Repository::clone(
-            &self.source,
-            registry.index_path(),
-        )?);
-
         info!("{} cloned.", self.source);
 
         info!("Start to download crates...");

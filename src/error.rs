@@ -53,6 +53,10 @@ pub enum SkrdError {
     #[fail(display = "Walk dir error: {}", _0)]
     Walk(walkdir::Error),
 
+    /// Reqwest error
+    #[fail(display = "Reqwest error: {}", _0)]
+    Reqwest(reqwest::Error),
+
     /// Custom error
     #[fail(display = "Custom error: {}", _0)]
     Custom(String),
@@ -133,6 +137,12 @@ impl<T> From<std::sync::PoisonError<T>> for SkrdError {
 impl From<walkdir::Error> for SkrdError {
     fn from(err: walkdir::Error) -> Self {
         SkrdError::Walk(err)
+    }
+}
+
+impl From<reqwest::Error> for SkrdError {
+    fn from(err: reqwest::Error) -> Self {
+        SkrdError::Reqwest(err)
     }
 }
 

@@ -1,11 +1,11 @@
-use crate::error::SkrdResult;
-use crate::registry::{Registry, UrlConfig, Crate};
+use crate::error::{SkrdError, SkrdResult};
+use crate::registry::{CrateMeta, Registry, UrlConfig};
 use actix_http::http::header::HttpDate;
 use actix_web::Responder;
 use git2::build::CheckoutBuilder;
 use git2::Oid;
-use std::fs::{OpenOptions, File};
-use std::io::{Read, Seek, SeekFrom, Write, BufReader, BufRead};
+use std::fs::{create_dir_all, File, OpenOptions};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -117,9 +117,19 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
 }
 
 pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
-    let wd = walkdir::WalkDir::new(registry.index_path());
+    let mirror = registry.mirror_config().ok_or_else(|| {
+        SkrdError::Custom(format!(
+            "Registry '{}' does not seem to be a mirror.",
+            registry.config().name()
+        ))
+    })?;
+
+    let wd = walkdir::WalkDir::new(registry.index_path())
+        .sort_by(|a, b| a.file_name().cmp(b.file_name()));
+    let client = reqwest::ClientBuilder::new().gzip(false).build()?;
     let mut checked = 0;
     let mut downloaded = 0;
+    let mut dl_error = 0;
     for w in wd {
         match w {
             Ok(entry) => {
@@ -140,18 +150,78 @@ pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
                 for line in reader.lines() {
                     let json = line?;
 
-                    let krate = serde_json::from_str::<Crate>(&json)?;
+                    let crate_meta = serde_json::from_str::<CrateMeta>(&json)?;
 
-                    let crate_path = registry.crates_path().join(get_crate_path(&krate.name, &krate.version));
+                    let crate_path = get_crate_path(&crate_meta.name, &crate_meta.version);
+
+                    let crate_file_path = registry.crates_path().join(&crate_path);
 
                     checked += 1;
-                    if checked % 1000 == 0 {
-                        info!("{} crates has been checked.", checked);
-                    }
+                    if !crate_file_path.exists() {
+                        let crate_dl_url = format!(
+                            "{}/{}/{}/download",
+                            mirror.origin_urls.dl, crate_meta.name, crate_meta.version
+                        );
 
-                    if !crate_path.exists() {
+                        // TODO: optimize
+                        let download = client
+                            .get(&crate_dl_url)
+                            .send()
+                            .map_err(SkrdError::Reqwest)
+                            .and_then(|mut r| {
+                                let mut vec = Vec::with_capacity(200 * 1024);
+                                let len = r.copy_to(&mut vec)?;
+
+                                let sha256 = openssl::sha::sha256(&vec);
+
+                                if sha256 != crate_meta.checksum {
+                                    return Err(SkrdError::Custom(format!(
+                                        "Crate {}-{} checksum error: expected={}, actual={}",
+                                        crate_meta.name,
+                                        crate_meta.version,
+                                        hex::encode(&crate_meta.checksum),
+                                        hex::encode(&sha256)
+                                    )));
+                                }
+
+                                create_dir_all(crate_file_path.parent().ok_or_else(|| {
+                                    SkrdError::Custom(format!(
+                                        "{} does not have a parent directory.",
+                                        crate_file_path.to_str().unwrap()
+                                    ))
+                                })?)?;
+                                let mut file = OpenOptions::new()
+                                    .write(true)
+                                    .create(true)
+                                    .open(&crate_file_path)?;
+                                file.write_all(&vec)?;
+
+                                Ok::<_, SkrdError>(len)
+                            });
+
+                        match download {
+                            Ok(len) => {
+                                info!(
+                                    "Crate {} ({} bytes) downloaded to {}.",
+                                    crate_meta,
+                                    len,
+                                    crate_file_path.to_str().unwrap()
+                                );
+                            }
+                            Err(e) => {
+                                dl_error += 1;
+                                warn!("Crate {} download error: {}", crate_meta, e);
+                            }
+                        }
 
                         downloaded += 1;
+                    }
+
+                    if checked % 1000 == 0 {
+                        info!(
+                            "{} crates is checked, {} crates is downloaded ({} error).",
+                            checked, downloaded, dl_error
+                        );
                     }
                 }
             }
@@ -159,8 +229,8 @@ pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
         }
     }
     info!(
-        "Total: {} crates is checked, {} crates is downloaded.",
-        checked, downloaded
+        "Total: {} crates is checked, {} crates is downloaded ({} error).",
+        checked, downloaded, dl_error
     );
     Ok(())
 }

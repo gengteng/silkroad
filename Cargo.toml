@@ -29,6 +29,10 @@ serde = "1.0.92"
 serde_json = "1.0.39"
 serde_derive = "1.0.92"
 
+openssl = "0.10.23"
+hex-serde = "0.1.0"
+hex = "0.3.2"
+
 log = { version = "0.3.9", features = ["max_level_trace", "release_max_level_debug"] }
 slog = { version = "2.4.1", features = ["max_level_trace", "release_max_level_debug"] }
 slog-scope = "4.1.1"

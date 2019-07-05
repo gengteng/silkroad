@@ -85,7 +85,6 @@ $ skrd serve mymirror
 * Documents
     * [Git - Transfer Protocols](https://git-scm.com/book/en/v2/Git-Internals-Transfer-Protocols)
     * [Registries - The Cargo Book](https://doc.rust-lang.org/cargo/reference/registries.html)
-    * 
 * Projects
     * [rust-lang/crates.io-index](https://github.com/rust-lang/crates.io-index) Crates.io index.
     * [rust-lang/crates.io](https://github.com/rust-lang/crates.io) Source code for crates.io.

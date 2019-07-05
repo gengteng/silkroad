@@ -2,13 +2,13 @@ use crate::error::{SkrdError, SkrdResult};
 use crate::registry::{CrateMeta, Registry, UrlConfig};
 use actix_http::http::header::HttpDate;
 use actix_web::Responder;
+use digest::Digest;
 use git2::build::CheckoutBuilder;
 use git2::Oid;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, SystemTime};
-use digest::Digest;
 
 /// Get the service name from url query string
 ///
@@ -117,6 +117,8 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
     }
 }
 
+/// Download crates
+///
 pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
     let mirror = registry.mirror_config().ok_or_else(|| {
         SkrdError::Custom(format!(
@@ -170,13 +172,11 @@ pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
                             .send()
                             .map_err(SkrdError::Reqwest)
                             .and_then(|mut r| {
-
                                 let (bytes, len) = {
                                     let mut vec = Vec::with_capacity(200 * 1024);
                                     let len = r.copy_to(&mut vec)?;
                                     (vec, len)
                                 };
-
 
                                 let mut sha256 = sha2::Sha256::new();
                                 sha256.input(&bytes);
@@ -243,7 +243,9 @@ pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
     Ok(())
 }
 
-pub fn get_crate_path(name: &str, version: &str) -> PathBuf {
+/// Build crates path
+///
+pub fn get_crate_path(name: &str, version: &str) -> String {
     match name.len() {
         1 => format!("{}/{}/{}-{}.crate", 1, name, name, version),
         2 => format!("{}/{}/{}-{}.crate", 2, name, name, version),
@@ -257,5 +259,4 @@ pub fn get_crate_path(name: &str, version: &str) -> PathBuf {
             version
         ),
     }
-    .into()
 }

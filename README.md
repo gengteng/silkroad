@@ -26,7 +26,7 @@ A full-featured registry server for Cargo.
 - [ ] Mirroring
     - [x] Index clone and sync
     - [x] Crates download
-    - [ ] Parallel download
+    - [x] Parallel download
     - [ ] Timer
 - [ ] Server Migration
     - [ ] Package

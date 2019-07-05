@@ -147,30 +147,24 @@ pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
                         return false;
                     }
 
-                    return true;
+                    true
                 }
-                Err(_) => {
-                    return false;
-                }
+                Err(_) => false,
             },
-            Err(_) => {
-                return false;
-            }
+            Err(_) => false,
         })
         .par_bridge()
         .map(|w| match w {
             Ok(entry) => match download(mirror, registry, &entry, &client) {
-                Ok(r) => {
-                    return r;
-                }
+                Ok(r) => r,
                 Err(e) => {
                     error!("Download error: {}", e);
-                    return (0, 0, 0);
+                    (0, 0, 0)
                 }
             },
             Err(e) => {
                 error!("Walk error: {}", e);
-                return (0, 0, 0);
+                (0, 0, 0)
             }
         })
         .reduce(|| (0, 0, 0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));

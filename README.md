@@ -31,7 +31,6 @@ A full-featured registry server for Cargo.
 - [ ] Server Migration
     - [ ] Package
     - [ ] Unpackage
-- [ ] Execute a toml file as a command
 - [ ] Homepage (An Angular based SPA?)
 
 ## Dependencies

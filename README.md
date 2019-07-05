@@ -39,7 +39,46 @@ A full-featured registry server for Cargo.
 
 ## Usage
 
-[WIP]
+### Installation
+
+```
+$ cargo install silkroad
+```
+
+### Create a mirror
+
+```
+$ skrd mirror <path> [source]
+```
+Examples:
+
+```
+$ skrd mirror mymirror https://mirrors.ustc.edu.cn/crates.io-index
+```
+
+```
+$ skrd mirror official
+```
+
+### Update a mirror
+
+```
+$ skrd update <path>
+```
+Example:
+```
+$ skrd update mymirror
+```
+
+### Serve
+
+```
+$ skrd serve <path>
+```
+Example:
+```
+$ skrd update mymirror
+```
 
 ## References
 

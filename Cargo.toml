@@ -17,6 +17,8 @@ rustls = "0.15"
 mime = "0.3.13"
 walkdir = "2.2.8"
 
+rayon = "1.1.0"
+
 reqwest = "0.9.18"
 
 structopt = "0.2"

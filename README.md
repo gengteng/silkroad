@@ -77,7 +77,7 @@ $ skrd serve <path>
 ```
 Example:
 ```
-$ skrd update mymirror
+$ skrd serve mymirror
 ```
 
 ## References

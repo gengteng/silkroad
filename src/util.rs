@@ -8,6 +8,7 @@ use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+use digest::Digest;
 
 /// Get the service name from url query string
 ///
@@ -169,18 +170,25 @@ pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
                             .send()
                             .map_err(SkrdError::Reqwest)
                             .and_then(|mut r| {
-                                let mut vec = Vec::with_capacity(200 * 1024);
-                                let len = r.copy_to(&mut vec)?;
 
-                                let sha256 = openssl::sha::sha256(&vec);
+                                let (bytes, len) = {
+                                    let mut vec = Vec::with_capacity(200 * 1024);
+                                    let len = r.copy_to(&mut vec)?;
+                                    (vec, len)
+                                };
 
-                                if sha256 != crate_meta.checksum {
+
+                                let mut sha256 = sha2::Sha256::new();
+                                sha256.input(&bytes);
+                                let checksum = sha256.result().to_vec();
+
+                                if checksum != crate_meta.checksum {
                                     return Err(SkrdError::Custom(format!(
                                         "Crate {}-{} checksum error: expected={}, actual={}",
                                         crate_meta.name,
                                         crate_meta.version,
                                         hex::encode(&crate_meta.checksum),
-                                        hex::encode(&sha256)
+                                        hex::encode(&checksum)
                                     )));
                                 }
 
@@ -194,7 +202,7 @@ pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
                                     .write(true)
                                     .create(true)
                                     .open(&crate_file_path)?;
-                                file.write_all(&vec)?;
+                                file.write_all(&bytes)?;
 
                                 Ok::<_, SkrdError>(len)
                             });

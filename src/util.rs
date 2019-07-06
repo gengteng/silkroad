@@ -209,6 +209,10 @@ fn download(
                 .send()
                 .map_err(SkrdError::Reqwest)
                 .and_then(|mut r| {
+                    if !r.status().is_success() {
+                        return Err(SkrdError::Custom(format!("Http Response status: {}", r.status().as_u16())));
+                    }
+
                     let (bytes, len) = {
                         let mut vec = Vec::with_capacity(200 * 1024);
                         let len = r.copy_to(&mut vec)?;

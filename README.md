@@ -47,6 +47,7 @@ $ cargo install silkroad
 
 ### Create a mirror
 
+This command will create a mirror of `source` in the `path` directory.
 ```
 $ skrd mirror <path> [source]
 ```
@@ -55,9 +56,8 @@ Examples:
 ```
 $ skrd mirror mymirror https://mirrors.ustc.edu.cn/crates.io-index
 ```
-
 ```
-$ skrd mirror official
+$ skrd mirror official #default source = https://github.com/rust-lang/crates.io-index
 ```
 
 ### Update a mirror
@@ -69,6 +69,9 @@ Example:
 ```
 $ skrd update mymirror
 ```
+```
+$ skrd update # in mymirror
+```
 
 ### Serve
 
@@ -78,6 +81,9 @@ $ skrd serve <path>
 Example:
 ```
 $ skrd serve mymirror
+```
+```
+$ skrd serve # in mymirror
 ```
 
 ## References

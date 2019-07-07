@@ -14,6 +14,7 @@ A full-featured registry server for Cargo.
     - [x] HTTP server
         - [x] The Dumb Protocol
         - [x] The Smart Protocol(except git-receive-pack)
+        - [ ] HTTPS
     - [ ] Git server
     - [ ] No dependency on `git`
     - [ ] Registry Web API (Login, Publish and so on)

@@ -14,7 +14,7 @@ use std::{
 use structopt::StructOpt;
 
 use crate::error::SkrdError;
-use crate::util::write_config_json;
+use crate::util::{get_crate_path, write_config_json};
 use crate::{
     error::SkrdResult,
     registry::Registry,
@@ -180,42 +180,11 @@ fn redirect_download(
     let name = &path.0;
     let version = &path.1;
 
-    let location = match name.len() {
-        1 => format!(
-            "/{}/crates/{}/{}/{}-{}.crate",
-            registry.config().name(),
-            1,
-            name,
-            name,
-            version
-        ),
-        2 => format!(
-            "/{}/crates/{}/{}/{}-{}.crate",
-            registry.config().name(),
-            2,
-            name,
-            name,
-            version
-        ),
-        3 => format!(
-            "/{}/crates/{}/{}/{}/{}-{}.crate",
-            registry.config().name(),
-            3,
-            &name[..1],
-            name,
-            name,
-            version
-        ),
-        _ => format!(
-            "/{}/crates/{}/{}/{}/{}-{}.crate",
-            registry.config().name(),
-            &name[..2],
-            &name[2..4],
-            name,
-            name,
-            version
-        ),
-    };
+    let location = format!(
+        "/{}/crates/{}",
+        registry.config().name(),
+        get_crate_path(name, version)
+    );
 
     HttpResponse::Found()
         .header(header::LOCATION, location)

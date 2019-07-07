@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use reqwest::Client;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 use walkdir::DirEntry;
 
@@ -210,7 +210,10 @@ fn download(
                 .map_err(SkrdError::Reqwest)
                 .and_then(|mut r| {
                     if !r.status().is_success() {
-                        return Err(SkrdError::Custom(format!("Http Response status: {}", r.status().as_u16())));
+                        return Err(SkrdError::Custom(format!(
+                            "Http Response status: {}",
+                            r.status().as_u16()
+                        )));
                     }
 
                     let (bytes, len) = {
@@ -269,7 +272,7 @@ fn download(
     Ok((checked, dl_ok, dl_error))
 }
 
-pub fn get_crate_path(name: &str, version: &str) -> PathBuf {
+pub fn get_crate_path(name: &str, version: &str) -> String {
     match name.len() {
         1 => format!("{}/{}/{}-{}.crate", 1, name, name, version),
         2 => format!("{}/{}/{}-{}.crate", 2, name, name, version),
@@ -283,5 +286,4 @@ pub fn get_crate_path(name: &str, version: &str) -> PathBuf {
             version
         ),
     }
-    .into()
 }

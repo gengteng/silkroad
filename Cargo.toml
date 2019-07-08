@@ -1,6 +1,6 @@
 [package]
 name = "silkroad"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["GengTeng <me@gteng.org>"]
 edition = "2018"
 description = "A full-featured registry server for Cargo."
@@ -16,6 +16,8 @@ futures = "0.1.27"
 rustls = "0.15"
 mime = "0.3.13"
 walkdir = "2.2.8"
+
+rayon = "1.1.0"
 
 reqwest = "0.9.18"
 

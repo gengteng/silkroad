@@ -1,4 +1,4 @@
-# SilkRoad
+# SilkRoad(skrd)
 
 ## Introduction
 
@@ -14,10 +14,9 @@ A full-featured registry server for Cargo.
     - [x] HTTP server
         - [x] The Dumb Protocol
         - [x] The Smart Protocol(except git-receive-pack)
+        - [ ] HTTPS
     - [ ] Git server
-    - [ ] `git` related
-        - [x] Command output cache
-        - [ ] No dependency on `git`
+    - [ ] No dependency on `git`
     - [ ] Registry Web API (Login, Publish and so on)
         - [ ] Login
         - [ ] Publish
@@ -26,12 +25,11 @@ A full-featured registry server for Cargo.
 - [ ] Mirroring
     - [x] Index clone and sync
     - [x] Crates download
-    - [ ] Parallel download
+    - [x] Parallel download
     - [ ] Timer
 - [ ] Server Migration
     - [ ] Package
     - [ ] Unpackage
-- [ ] Execute a toml file as a command
 - [ ] Homepage (An Angular based SPA?)
 
 ## Dependencies
@@ -40,14 +38,58 @@ A full-featured registry server for Cargo.
 
 ## Usage
 
-[WIP]
+### Installation
+
+```
+$ cargo install silkroad
+```
+
+### Create a mirror
+
+This command will create a mirror of `source` in the `path` directory.
+```
+$ skrd mirror <path> [source]
+```
+Examples:
+
+```
+$ skrd mirror mymirror https://mirrors.ustc.edu.cn/crates.io-index
+```
+```
+$ skrd mirror official #default source = https://github.com/rust-lang/crates.io-index
+```
+
+### Update a mirror
+
+```
+$ skrd update <path>
+```
+Example:
+```
+$ skrd update mymirror
+```
+```
+$ skrd update # in mymirror
+```
+
+### Serve
+
+```
+$ skrd serve <path>
+```
+Example:
+```
+$ skrd serve mymirror
+```
+```
+$ skrd serve # in mymirror
+```
 
 ## References
 
 * Documents
     * [Git - Transfer Protocols](https://git-scm.com/book/en/v2/Git-Internals-Transfer-Protocols)
     * [Registries - The Cargo Book](https://doc.rust-lang.org/cargo/reference/registries.html)
-    * 
 * Projects
     * [rust-lang/crates.io-index](https://github.com/rust-lang/crates.io-index) Crates.io index.
     * [rust-lang/crates.io](https://github.com/rust-lang/crates.io) Source code for crates.io.

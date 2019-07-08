@@ -14,18 +14,17 @@ use std::{
 use structopt::StructOpt;
 
 use crate::error::SkrdError;
-use crate::util::write_config_json;
+use crate::util::{get_crate_path, write_config_json};
 use crate::{
     error::SkrdResult,
     registry::Registry,
-    util::{cache_forever, get_crate_path, get_service_from_query_string, no_cache},
+    util::{cache_forever, get_service_from_query_string, no_cache},
 };
 use actix_http::httpmessage::HttpMessage;
 use mime::Mime;
 use std::io::Write;
 use std::process::Stdio;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "serve")]
@@ -37,8 +36,6 @@ pub struct Serve {
     )]
     registry: Option<Registry>,
 }
-
-type UploadPackCache = Arc<Mutex<Option<(web::Bytes, Vec<u8>)>>>;
 
 impl Serve {
     pub fn serve(self) -> SkrdResult<()> {
@@ -62,11 +59,8 @@ impl Serve {
 
         // HttpServer shared data
         let reg = registry.clone();
-        let cache: UploadPackCache = Arc::new(Mutex::new(None));
-
         let server = HttpServer::new(move || {
             App::new()
-                .data(cache.clone())
                 .data(reg.clone())
                 .wrap(Logger::default())
                 .wrap(DefaultHeaders::new().header(
@@ -189,7 +183,7 @@ fn redirect_download(
     let location = format!(
         "/{}/crates/{}",
         registry.config().name(),
-        get_crate_path(&name, &version)
+        get_crate_path(name, version)
     );
 
     HttpResponse::Found()
@@ -206,7 +200,6 @@ fn git_upload_pack(
     request: HttpRequest,
     body: web::Bytes,
     registry: web::Data<Registry>,
-    cache: web::Data<UploadPackCache>,
 ) -> SkrdResult<HttpResponse> {
     if request.content_type() != "application/x-git-upload-pack-request" {
         return Ok(HttpResponse::Forbidden().finish());
@@ -214,15 +207,6 @@ fn git_upload_pack(
 
     if !registry.config().upload_on() {
         return Ok(HttpResponse::Forbidden().finish());
-    }
-
-    let mut guard = cache.lock()?;
-    if let Some((b, o)) = guard.as_ref() {
-        if b.eq(&body) {
-            return Ok(HttpResponse::Ok()
-                .content_type("application/x-git-upload-pack-result")
-                .body(o.clone()));
-        }
     }
 
     let mut child = PsCommand::new("git")
@@ -242,7 +226,6 @@ fn git_upload_pack(
     }
 
     let output = child.wait_with_output()?;
-    *guard = Some((body.clone(), output.stdout.clone()));
     Ok(HttpResponse::Ok()
         .content_type("application/x-git-upload-pack-result")
         .body(output.stdout))

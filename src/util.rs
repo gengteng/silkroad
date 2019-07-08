@@ -1,14 +1,17 @@
 use crate::error::{SkrdError, SkrdResult};
-use crate::registry::{CrateMeta, Registry, UrlConfig};
+use crate::registry::{CrateMeta, Mirror, Registry, UrlConfig};
 use actix_http::http::header::HttpDate;
 use actix_web::Responder;
 use digest::Digest;
 use git2::build::CheckoutBuilder;
 use git2::Oid;
+use rayon::prelude::*;
+use reqwest::Client;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
+use walkdir::DirEntry;
 
 /// Get the service name from url query string
 ///
@@ -117,8 +120,6 @@ pub fn write_config_json(registry: &Registry) -> SkrdResult<Option<Oid>> {
     }
 }
 
-/// Download crates
-///
 pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
     let mirror = registry.mirror_config().ok_or_else(|| {
         SkrdError::Custom(format!(
@@ -130,117 +131,145 @@ pub fn download_crates(registry: &Registry) -> SkrdResult<()> {
     let wd = walkdir::WalkDir::new(registry.index_path())
         .sort_by(|a, b| a.file_name().cmp(b.file_name()));
     let client = reqwest::ClientBuilder::new().gzip(false).build()?;
-    let mut checked = 0;
-    let mut downloaded = 0;
-    let mut dl_error = 0;
-    for w in wd {
-        match w {
-            Ok(entry) => {
-                let metadata = entry.metadata()?;
-                if metadata.is_dir() || !metadata.is_file() {
-                    continue;
-                }
 
-                if entry.path().starts_with(registry.index_git_path())
-                    || entry.file_name() == "config.json"
-                {
-                    continue;
-                }
-
-                let file = File::open(entry.path())?;
-                let reader = BufReader::new(file);
-
-                for line in reader.lines() {
-                    let json = line?;
-
-                    let crate_meta = serde_json::from_str::<CrateMeta>(&json)?;
-
-                    let crate_path = get_crate_path(&crate_meta.name, &crate_meta.version);
-
-                    let crate_file_path = registry.crates_path().join(&crate_path);
-
-                    checked += 1;
-                    if !crate_file_path.exists() {
-                        let crate_dl_url = format!(
-                            "{}/{}/{}/download",
-                            mirror.origin_urls.dl, crate_meta.name, crate_meta.version
-                        );
-
-                        // TODO: optimize
-                        let download = client
-                            .get(&crate_dl_url)
-                            .send()
-                            .map_err(SkrdError::Reqwest)
-                            .and_then(|mut r| {
-                                let (bytes, len) = {
-                                    let mut vec = Vec::with_capacity(200 * 1024);
-                                    let len = r.copy_to(&mut vec)?;
-                                    (vec, len)
-                                };
-
-                                let mut sha256 = sha2::Sha256::new();
-                                sha256.input(&bytes);
-                                let checksum = sha256.result().to_vec();
-
-                                if checksum != crate_meta.checksum {
-                                    return Err(SkrdError::Custom(format!(
-                                        "Crate {}-{} checksum error: expected={}, actual={}",
-                                        crate_meta.name,
-                                        crate_meta.version,
-                                        hex::encode(&crate_meta.checksum),
-                                        hex::encode(&checksum)
-                                    )));
-                                }
-
-                                create_dir_all(crate_file_path.parent().ok_or_else(|| {
-                                    SkrdError::Custom(format!(
-                                        "{} does not have a parent directory.",
-                                        crate_file_path.to_str().unwrap()
-                                    ))
-                                })?)?;
-                                let mut file = OpenOptions::new()
-                                    .write(true)
-                                    .create(true)
-                                    .open(&crate_file_path)?;
-                                file.write_all(&bytes)?;
-
-                                Ok::<_, SkrdError>(len)
-                            });
-
-                        match download {
-                            Ok(len) => {
-                                info!(
-                                    "Crate {} ({} bytes) downloaded to {}.",
-                                    crate_meta,
-                                    len,
-                                    crate_file_path.to_str().unwrap()
-                                );
-                            }
-                            Err(e) => {
-                                dl_error += 1;
-                                warn!("Crate {} download error: {}", crate_meta, e);
-                            }
-                        }
-
-                        downloaded += 1;
+    let (checked, downloaded, failed) = wd
+        .into_iter()
+        .filter(|result| match result {
+            Ok(entry) => match entry.metadata() {
+                Ok(metadata) => {
+                    if metadata.is_dir() || !metadata.is_file() {
+                        return false;
                     }
 
-                    if checked % 1000 == 0 {
-                        info!(
-                            "{} crates is checked, {} crates is downloaded ({} error).",
-                            checked, downloaded, dl_error
-                        );
+                    if entry.path().starts_with(registry.index_git_path())
+                        || entry.file_name() == "config.json"
+                    {
+                        return false;
                     }
+
+                    true
                 }
+                Err(_) => false,
+            },
+            Err(_) => false,
+        })
+        .par_bridge()
+        .map(|w| match w {
+            Ok(entry) => match download(mirror, registry, &entry, &client) {
+                Ok(r) => r,
+                Err(e) => {
+                    error!("Download error: {}", e);
+                    (0, 0, 0)
+                }
+            },
+            Err(e) => {
+                error!("Walk error: {}", e);
+                (0, 0, 0)
             }
-            Err(e) => error!("walk error: {}", e),
-        }
-    }
+        })
+        .reduce(|| (0, 0, 0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
     info!(
         "Total: {} crates is checked, {} crates is downloaded ({} error).",
-        checked, downloaded, dl_error
+        checked, downloaded, failed
     );
     Ok(())
+}
+
+fn download(
+    mirror: &Mirror,
+    registry: &Registry,
+    entry: &DirEntry,
+    client: &Client,
+) -> SkrdResult<(u32, u32, u32)> {
+    let mut checked = 0u32;
+    let mut dl_ok = 0u32;
+    let mut dl_error = 0u32;
+
+    let file = File::open(entry.path())?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let json = line?;
+
+        let crate_meta = serde_json::from_str::<CrateMeta>(&json)?;
+
+        let crate_path = get_crate_path(&crate_meta.name, &crate_meta.version);
+
+        let crate_file_path = registry.crates_path().join(&crate_path);
+
+        checked += 1;
+        if !crate_file_path.exists() {
+            let crate_dl_url = format!(
+                "{}/{}/{}/download",
+                mirror.origin_urls.dl, crate_meta.name, crate_meta.version
+            );
+
+            let download = client
+                .get(&crate_dl_url)
+                .send()
+                .map_err(SkrdError::Reqwest)
+                .and_then(|mut r| {
+                    if !r.status().is_success() {
+                        return Err(SkrdError::Custom(format!(
+                            "Http Response status: {}",
+                            r.status().as_u16()
+                        )));
+                    }
+
+                    let (bytes, len) = {
+                        let mut vec = Vec::with_capacity(200 * 1024);
+                        let len = r.copy_to(&mut vec)?;
+                        (vec, len)
+                    };
+
+                    let mut sha256 = sha2::Sha256::new();
+                    sha256.input(&bytes);
+                    let checksum = sha256.result().to_vec();
+
+                    if checksum != crate_meta.checksum {
+                        return Err(SkrdError::Custom(format!(
+                            "Crate {}-{} checksum error: expected={}, actual={}",
+                            crate_meta.name,
+                            crate_meta.version,
+                            hex::encode(&crate_meta.checksum),
+                            hex::encode(&checksum)
+                        )));
+                    }
+
+                    create_dir_all(crate_file_path.parent().ok_or_else(|| {
+                        SkrdError::Custom(format!(
+                            "{} does not have a parent directory.",
+                            crate_file_path.display()
+                        ))
+                    })?)?;
+                    let mut file = OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .open(&crate_file_path)?;
+                    file.write_all(&bytes)?;
+
+                    Ok::<_, SkrdError>(len)
+                });
+
+            match download {
+                Ok(len) => {
+                    dl_ok += 1;
+                    info!(
+                        "Crate {} ({} bytes) downloaded to {}.",
+                        crate_meta,
+                        len,
+                        crate_file_path.display()
+                    );
+                }
+                Err(e) => {
+                    dl_error += 1;
+                    warn!("Crate {} download error: {}", crate_meta, e);
+                }
+            }
+        }
+    }
+
+    Ok((checked, dl_ok, dl_error))
 }
 
 /// Build crates path

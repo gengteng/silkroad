@@ -74,7 +74,7 @@ impl Registry {
         let toml = toml::to_string_pretty(&config)?;
         file.write_all(toml.as_bytes())?;
         drop(file);
-        info!("Registry toml file {:?} is created.", toml_path);
+        info!("Registry toml file {} is created.", toml_path.display());
 
         let index_git_path = index_path.join(Registry::INDEX_GIT_DIRECTORY);
 
@@ -103,7 +103,7 @@ impl Registry {
         let toml = toml::to_string_pretty(&config)?;
         file.write_all(toml.as_bytes())?;
         drop(file);
-        info!("Registry config file {:?} is created.", toml_path);
+        info!("Registry config file {} is created.", toml_path.display());
 
         let index_git_path = index_path.join(Registry::INDEX_GIT_DIRECTORY);
 
@@ -163,15 +163,15 @@ impl Registry {
 
 fn create_registry_dirs(root: &PathBuf) -> SkrdResult<(PathBuf, PathBuf)> {
     std::fs::create_dir(root)?;
-    info!("Root path {:?} is created.", root);
+    info!("Root path {} is created.", root.display());
 
     let index_path = root.join(Registry::INDEX_DIRECTORY);
     std::fs::create_dir(&index_path)?;
-    info!("Index path {:?} is created.", index_path);
+    info!("Index path {} is created.", index_path.display());
 
     let crates_path = root.join(Registry::CRATES_DIRECTORY);
     std::fs::create_dir(&crates_path)?;
-    info!("Crates path {:?} is created.", crates_path);
+    info!("Crates path {} is created.", crates_path.display());
 
     Ok((index_path, crates_path))
 }
@@ -308,7 +308,7 @@ impl Mirror {
     pub fn clone_index<P: Into<PathBuf>>(index_path: P, source: &str) -> SkrdResult<Self> {
         let index_path = index_path.into();
 
-        info!("{} is being cloned into {:?} ...", source, index_path);
+        info!("{} is being cloned into {} ...", source, index_path.display());
 
         drop(git2::Repository::clone(&source, &index_path)?);
 

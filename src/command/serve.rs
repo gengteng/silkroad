@@ -304,51 +304,41 @@ fn get_info_refs(
 }
 
 fn update_and_get_refs(registry: &Registry) -> SkrdResult<String> {
-
     let wd = walkdir::WalkDir::new(registry.index_git_path().join("refs"));
     let mut refs = String::with_capacity(512);
     let mut first = true;
     for result in wd {
         match result {
-            Ok(entry) => {
-                match entry.metadata() {
-                    Ok(meta) => {
-                        if !meta.is_file()  {
-                            continue;
-                        }
-
-                        match entry.path().strip_prefix(registry.index_git_path()) {
-                            Ok(path) => {
-                                if !first {
-                                    refs.push('\n');
-                                }
-                                first = false;
-
-                                let mut file = File::open(entry.path())?;
-                                let mut buff = [0u8; 40];
-                                file.read_exact(&mut buff)?;
-                                drop(file);
-
-                                refs.push_str(&String::from_utf8(buff.to_vec())?);
-                                refs.push('\t');
-                                refs.push_str(&path.display().to_string());
-                            }
-                            Err(_) => {
-
-                            }
-                        }
+            Ok(entry) => match entry.metadata() {
+                Ok(meta) => {
+                    if !meta.is_file() {
+                        continue;
                     }
-                    Err(_) => {
 
+                    match entry.path().strip_prefix(registry.index_git_path()) {
+                        Ok(path) => {
+                            if !first {
+                                refs.push('\n');
+                            }
+                            first = false;
+
+                            let mut file = File::open(entry.path())?;
+                            let mut buff = [0u8; 40];
+                            file.read_exact(&mut buff)?;
+                            drop(file);
+
+                            refs.push_str(&String::from_utf8(buff.to_vec())?);
+                            refs.push('\t');
+                            refs.push_str(&path.display().to_string());
+                        }
+                        Err(_) => {}
                     }
                 }
-            }
-            Err(_) => {
-
-            }
+                Err(_) => {}
+            },
+            Err(_) => {}
         }
     }
-
 
     Ok(refs)
 }

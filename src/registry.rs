@@ -308,7 +308,11 @@ impl Mirror {
     pub fn clone_index<P: Into<PathBuf>>(index_path: P, source: &str) -> SkrdResult<Self> {
         let index_path = index_path.into();
 
-        info!("{} is being cloned into {} ...", source, index_path.display());
+        info!(
+            "{} is being cloned into {} ...",
+            source,
+            index_path.display()
+        );
 
         drop(git2::Repository::clone(&source, &index_path)?);
 

@@ -14,12 +14,8 @@ use std::{
 use structopt::StructOpt;
 
 use crate::error::SkrdError;
-use crate::util::{get_crate_path, write_config_json};
-use crate::{
-    error::SkrdResult,
-    registry::Registry,
-    util::{cache_forever, get_service_from_query_string, no_cache},
-};
+use crate::util::*;
+use crate::{error::SkrdResult, registry::Registry};
 use actix_http::httpmessage::HttpMessage;
 use mime::Mime;
 use std::io::Write;
@@ -240,10 +236,7 @@ fn git_receive_pack(request: HttpRequest) -> SkrdResult<HttpResponse> {
 }
 
 // http://localhost:9090/crates.io-index/info/refs?service=git-upload-pack
-fn get_info_refs(
-    request: HttpRequest,
-    registry: web::Data<Registry>,
-) -> SkrdResult<impl Responder> {
+fn get_info_refs(request: HttpRequest, registry: web::Data<Registry>) -> SkrdResult<HttpResponse> {
     match get_service_from_query_string(request.query_string()) {
         Some(service) => {
             let is_upload_pack = service == "upload-pack";
@@ -254,11 +247,10 @@ fn get_info_refs(
                 || (is_upload_pack && !registry.config().upload_on()) // from registry config(.toml)
                 || (is_receive_pack && !registry.config().receive_on())
             {
-                return Ok(no_cache(
-                    HttpResponse::Ok()
-                        .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-                        .body(update_and_get_refs(&registry)?),
-                ));
+                return Ok(HttpResponse::Ok()
+                    .no_cache()
+                    .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+                    .body(update_and_get_refs(&registry)?));
             }
 
             // execute the git command
@@ -275,31 +267,26 @@ fn get_info_refs(
                     let head = format!("# service=git-{}\n", service);
                     let head_len = format!("{:04x}", head.len() + 4);
                     match String::from_utf8(output.stdout) {
-                        Ok(content) => Ok(no_cache(
-                            HttpResponse::Ok()
-                                .content_type(format!(
-                                    "application/x-git-{}-advertisement",
-                                    service
-                                ))
-                                .body(format!("{}{}0000{}", head_len, head, content)),
-                        )),
+                        Ok(content) => Ok(HttpResponse::Ok()
+                            .no_cache()
+                            .content_type(format!("application/x-git-{}-advertisement", service))
+                            .body(format!("{}{}0000{}", head_len, head, content))),
                         Err(e) => {
                             error!("{} service error: {}", service, e);
-                            Ok(no_cache(HttpResponse::NotFound().finish()))
+                            Ok(HttpResponse::NotFound().no_cache().finish())
                         }
                     }
                 }
                 Err(e) => {
                     error!("{} service error: {}", service, e);
-                    Ok(no_cache(HttpResponse::NotFound().finish()))
+                    Ok(HttpResponse::NotFound().no_cache().finish())
                 }
             }
         }
-        _ => Ok(no_cache(
-            HttpResponse::Ok()
-                .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
-                .body(update_and_get_refs(&registry)?),
-        )),
+        _ => Ok(HttpResponse::Ok()
+            .no_cache()
+            .content_type(mime::TEXT_PLAIN_UTF_8.to_string())
+            .body(update_and_get_refs(&registry)?)),
     }
 }
 

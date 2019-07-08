@@ -1,6 +1,7 @@
 use crate::error::{SkrdError, SkrdResult};
 use crate::registry::{CrateMeta, Mirror, Registry, UrlConfig};
 use actix_http::http::header::HttpDate;
+use actix_http::ResponseBuilder;
 use actix_web::Responder;
 use digest::Digest;
 use git2::build::CheckoutBuilder;
@@ -24,6 +25,33 @@ pub fn get_service_from_query_string(query: &str) -> Option<&str> {
             None => Some(&query[start..]),
         }
     })
+}
+
+/// Cache headers setting of `HttpResponse`
+///
+pub trait CacheHeaders {
+    fn no_cache(&mut self) -> &mut Self;
+    fn cache_forever(&mut self) -> &mut Self;
+}
+
+impl CacheHeaders for ResponseBuilder {
+    fn no_cache(&mut self) -> &mut Self {
+        self.set_header("Expires", "Fri, 01 Jan 1980 00:00:00 GMT")
+            .set_header("Pragma", "no-cache")
+            .set_header("Cache-Control", "no-cache, max-age=0, must-revalidate")
+    }
+
+    fn cache_forever(&mut self) -> &mut Self {
+        let now = SystemTime::now();
+        let date: HttpDate = now.into();
+
+        let next_year = now + Duration::from_secs(31_536_000u64);
+        let expire: HttpDate = next_year.into();
+
+        self.set_header("Date", date)
+            .set_header("Expires", expire)
+            .set_header("Cache-Control", "public, max-age=31536000")
+    }
 }
 
 /// Set a Responder to no-cache

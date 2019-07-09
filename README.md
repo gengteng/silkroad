@@ -2,7 +2,7 @@
 
 ## Introduction
 
-A ～～full-featured～～ registry server for Cargo. 
+A ~~full-featured~~ registry server for Cargo. 
 
 ## Status
 

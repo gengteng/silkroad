@@ -2,7 +2,7 @@
 
 ## Introduction
 
-A full-featured registry server for Cargo. 
+A ~~full-featured~~ registry server for Cargo. 
 
 ## Status
 
@@ -34,7 +34,7 @@ A full-featured registry server for Cargo.
 
 ## Dependencies
 
-* Git
+* Git 2+
 
 ## Usage
 

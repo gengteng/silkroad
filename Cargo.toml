@@ -45,7 +45,7 @@ slog-term = "2.4.0"
 slog_derive = "0.1"
 
 chrono = "0.4.6"
-time = "0.1.42"
+time = "0.2.0"
 
 [[bin]]
 path = "src/main.rs"
